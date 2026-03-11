@@ -21,7 +21,6 @@ body::before{content:'';position:fixed;inset:0;
   rgba(0,255,136,0.012) 2px,rgba(0,255,136,0.012) 4px);
   pointer-events:none;z-index:9999;}
 
-/* TOPBAR */
 .topbar{display:flex;align-items:center;justify-content:space-between;
   padding:12px 24px;background:var(--bg2);border-bottom:1px solid var(--border);
   position:sticky;top:0;z-index:100;}
@@ -56,10 +55,8 @@ body::before{content:'';position:fixed;inset:0;
 .api-status.offline{color:var(--red);border-color:var(--red);
   background:rgba(255,59,59,0.08);}
 
-/* MAIN */
 .main{padding:20px 24px;display:flex;flex-direction:column;gap:16px;}
 
-/* STAT CARDS */
 .stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;}
 .stats-row2{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;}
 .stat-card{background:var(--card);border:1px solid var(--border);
@@ -82,7 +79,6 @@ body::before{content:'';position:fixed;inset:0;
 .stat-value.cyan{color:var(--cyan);}
 .stat-value.blue{color:var(--blue);}
 
-/* PANEL */
 .panel{background:var(--card);border:1px solid var(--border);border-radius:6px;overflow:hidden;}
 .panel-header{display:flex;align-items:center;justify-content:space-between;
   padding:12px 16px;border-bottom:1px solid var(--border);background:var(--card2);}
@@ -93,15 +89,12 @@ body::before{content:'';position:fixed;inset:0;
   border-radius:3px;background:rgba(255,59,59,0.15);border:1px solid var(--red);
   color:var(--red);display:flex;align-items:center;gap:5px;}
 
-/* LAYOUTS */
 .bottom-row{display:grid;grid-template-columns:1.6fr 1fr;gap:16px;}
 .mid-row{display:grid;grid-template-columns:1fr 1.6fr;gap:16px;}
 .third-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
 
-/* CHART */
 .chart-canvas-wrap{height:260px;position:relative;}
 
-/* ALERTS */
 .alerts-list{display:flex;flex-direction:column;gap:4px;
   overflow-y:auto;max-height:310px;}
 .alerts-list::-webkit-scrollbar{width:3px;}
@@ -110,16 +103,16 @@ body::before{content:'';position:fixed;inset:0;
   background:var(--card2);border-radius:0 4px 4px 0;
   cursor:pointer;transition:background .2s,transform .1s;}
 .alert-item:hover{background:#1a2535;transform:translateX(3px);}
-.alert-item.crit{border-color:var(--red);}
+.alert-item.critical{border-color:var(--red);}
 .alert-item.high{border-color:var(--orange);}
-.alert-item.med{border-color:var(--yellow);}
+.alert-item.medium{border-color:var(--yellow);}
 .alert-item.low{border-color:var(--green);}
 .alert-top{display:flex;align-items:center;gap:8px;margin-bottom:4px;}
 .alert-sev{font-family:'Orbitron',monospace;font-size:10px;font-weight:700;
   padding:1px 6px;border-radius:3px;letter-spacing:1px;}
-.sev-crit{background:rgba(255,59,59,0.2);color:#ff3b3b;}
+.sev-critical{background:rgba(255,59,59,0.2);color:#ff3b3b;}
 .sev-high{background:rgba(255,149,0,0.2);color:#ff9500;}
-.sev-med{background:rgba(255,214,10,0.2);color:#ffd60a;}
+.sev-medium{background:rgba(255,214,10,0.2);color:#ffd60a;}
 .sev-low{background:rgba(0,255,136,0.15);color:#00ff88;}
 .alert-time{font-family:'Share Tech Mono',monospace;font-size:10px;
   color:var(--text-dim);flex:1;}
@@ -127,7 +120,6 @@ body::before{content:'';position:fixed;inset:0;
 .alert-msg{font-size:13px;color:var(--text-bright);font-weight:600;margin-bottom:2px;}
 .alert-src{font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text-dim);}
 
-/* ====== THREAT DETAIL MODAL ====== */
 .threat-modal{
   position:fixed;inset:0;z-index:10000;
   background:rgba(10,14,20,0.96);
@@ -151,7 +143,6 @@ body::before{content:'';position:fixed;inset:0;
 .threat-detail::-webkit-scrollbar-track{background:var(--bg);}
 .threat-detail::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
 
-/* Modal Header */
 .threat-header{
   display:flex;align-items:center;justify-content:space-between;
   padding:16px 20px;border-bottom:1px solid var(--border);
@@ -162,11 +153,11 @@ body::before{content:'';position:fixed;inset:0;
   font-family:'Orbitron',monospace;font-size:12px;font-weight:700;
   padding:4px 12px;border-radius:4px;letter-spacing:1.5px;
 }
-.threat-sev-badge.crit{background:rgba(255,59,59,0.2);color:#ff3b3b;
+.threat-sev-badge.critical{background:rgba(255,59,59,0.2);color:#ff3b3b;
   border:1px solid rgba(255,59,59,0.4);}
 .threat-sev-badge.high{background:rgba(255,149,0,0.2);color:#ff9500;
   border:1px solid rgba(255,149,0,0.4);}
-.threat-sev-badge.med{background:rgba(255,214,10,0.2);color:#ffd60a;
+.threat-sev-badge.medium{background:rgba(255,214,10,0.2);color:#ffd60a;
   border:1px solid rgba(255,214,10,0.4);}
 .threat-sev-badge.low{background:rgba(0,255,136,0.15);color:#00ff88;
   border:1px solid rgba(0,255,136,0.3);}
@@ -185,7 +176,6 @@ body::before{content:'';position:fixed;inset:0;
 .btn-close:hover{border-color:var(--red);color:var(--red);
   background:rgba(255,59,59,0.05);}
 
-/* Modal Body */
 .threat-body{padding:20px;}
 
 .threat-section{margin-bottom:24px;}
@@ -197,7 +187,6 @@ body::before{content:'';position:fixed;inset:0;
 }
 .section-title svg{width:16px;height:16px;}
 
-/* Info Grid */
 .info-grid{
   display:grid;grid-template-columns:repeat(3,1fr);gap:12px;
 }
@@ -215,7 +204,6 @@ body::before{content:'';position:fixed;inset:0;
   color:var(--text-bright);
 }
 
-/* Packet Info Table */
 .packet-table{
   width:100%;border-collapse:collapse;
   background:var(--card2);border:1px solid var(--border);
@@ -234,7 +222,6 @@ body::before{content:'';position:fixed;inset:0;
 .packet-table tr:last-child td{border-bottom:none;}
 .packet-table tr:hover td{background:rgba(0,255,136,0.02);}
 
-/* Hex Dump */
 .hex-dump{
   background:var(--card2);border:1px solid var(--border);
   border-radius:4px;padding:14px;
@@ -248,7 +235,6 @@ body::before{content:'';position:fixed;inset:0;
 .hex-bytes{color:var(--cyan);margin-right:12px;}
 .hex-ascii{color:var(--green);}
 
-/* Timeline */
 .timeline{
   display:flex;flex-direction:column;gap:0;
   border-left:2px solid var(--border);padding-left:20px;
@@ -263,9 +249,9 @@ body::before{content:'';position:fixed;inset:0;
   background:var(--green);border:2px solid var(--card);
   box-shadow:0 0 8px var(--green);
 }
-.timeline-item.crit::before{background:var(--red);box-shadow:0 0 8px var(--red);}
+.timeline-item.critical::before{background:var(--red);box-shadow:0 0 8px var(--red);}
 .timeline-item.high::before{background:var(--orange);box-shadow:0 0 8px var(--orange);}
-.timeline-item.med::before{background:var(--yellow);box-shadow:0 0 8px var(--yellow);}
+.timeline-item.medium::before{background:var(--yellow);box-shadow:0 0 8px var(--yellow);}
 
 .timeline-time{
   font-family:'Share Tech Mono',monospace;font-size:10px;
@@ -276,7 +262,6 @@ body::before{content:'';position:fixed;inset:0;
   color:var(--text-bright);font-weight:600;
 }
 
-/* Recommended Actions */
 .actions-list{display:flex;flex-direction:column;gap:10px;}
 .action-item{
   background:var(--card2);border:1px solid var(--border);
@@ -322,7 +307,6 @@ body::before{content:'';position:fixed;inset:0;
   background:rgba(0,255,136,0.1);color:#00ff88;
 }
 
-/* IP TABLE */
 .ip-table{width:100%;border-collapse:collapse;}
 .ip-table th{font-family:'Share Tech Mono',monospace;font-size:10px;
   letter-spacing:1px;color:var(--text-dim);text-transform:uppercase;
@@ -332,25 +316,7 @@ body::before{content:'';position:fixed;inset:0;
 .ip-table tr:last-child td{border-bottom:none;}
 .ip-table tr:hover td{background:rgba(0,255,136,0.03);}
 .ip-addr{font-family:'Share Tech Mono',monospace;font-size:12px;color:var(--text-bright);}
-.country-badge{font-family:'Share Tech Mono',monospace;font-size:10px;
-  padding:2px 6px;background:var(--card2);border:1px solid var(--border);
-  border-radius:3px;color:var(--text-dim);}
-.threat-score{font-family:'Orbitron',monospace;font-size:13px;font-weight:700;
-  padding:2px 8px;border-radius:4px;display:inline-block;}
-.threat-crit{color:#ff3b3b;background:rgba(255,59,59,0.12);}
-.threat-high{color:#ff9500;background:rgba(255,149,0,0.12);}
-.threat-med{color:#ffd60a;background:rgba(255,214,10,0.12);}
-.events-count{font-family:'Orbitron',monospace;font-size:12px;}
-.time-ago{font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text-dim);}
-.atk-tag{font-family:'Share Tech Mono',monospace;font-size:10px;
-  padding:2px 7px;border-radius:3px;margin-right:4px;display:inline-block;}
-.atk-red{background:rgba(255,59,59,0.15);border:1px solid rgba(255,59,59,0.3);color:#ff6b6b;}
-.atk-orange{background:rgba(255,149,0,0.15);border:1px solid rgba(255,149,0,0.3);color:#ff9500;}
-.atk-yellow{background:rgba(255,214,10,0.15);border:1px solid rgba(255,214,10,0.3);color:#ffd60a;}
-.atk-purple{background:rgba(191,90,242,0.15);border:1px solid rgba(191,90,242,0.3);color:#bf5af2;}
-.atk-blue{background:rgba(10,132,255,0.15);border:1px solid rgba(10,132,255,0.3);color:#0a84ff;}
 
-/* MODEL TABLE */
 .model-table{width:100%;border-collapse:collapse;}
 .model-table th{font-family:'Share Tech Mono',monospace;font-size:10px;
   letter-spacing:1px;color:var(--text-dim);text-transform:uppercase;
@@ -367,7 +333,6 @@ body::before{content:'';position:fixed;inset:0;
 .active-dot{display:inline-block;width:6px;height:6px;border-radius:50%;
   background:var(--green);box-shadow:0 0 6px var(--green);margin-right:6px;}
 
-/* FEATURE BARS */
 .feat-list{display:flex;flex-direction:column;gap:10px;}
 .feat-item{display:flex;align-items:center;gap:10px;}
 .feat-label{font-family:'Share Tech Mono',monospace;font-size:11px;
@@ -378,7 +343,6 @@ body::before{content:'';position:fixed;inset:0;
   transition:width 1.2s ease-out;box-shadow:0 0 8px rgba(0,255,136,0.3);}
 .feat-pct{font-family:'Orbitron',monospace;font-size:10px;color:var(--green);width:38px;}
 
-/* DONUT */
 .donut-wrap{display:flex;flex-direction:column;align-items:center;gap:16px;padding:8px 0;}
 .donut-canvas-wrap{position:relative;width:200px;height:200px;}
 .donut-center{position:absolute;inset:0;display:flex;flex-direction:column;
@@ -391,7 +355,6 @@ body::before{content:'';position:fixed;inset:0;
 .legend-item{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text-dim);}
 .legend-dot{width:9px;height:9px;border-radius:2px;flex-shrink:0;}
 
-/* BUTTONS */
 .action-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
 .btn{font-family:'Orbitron',monospace;font-size:11px;font-weight:700;
   letter-spacing:1.5px;padding:10px 20px;border-radius:4px;border:1px solid;
@@ -413,7 +376,6 @@ body::before{content:'';position:fixed;inset:0;
 .spinner{display:inline-block;width:12px;height:12px;border:2px solid transparent;
   border-top-color:currentColor;border-radius:50%;animation:spin .6s linear infinite;}
 
-/* TOAST */
 .toast{position:fixed;bottom:24px;right:24px;background:var(--card);
   border:1px solid var(--green);border-left:4px solid var(--green);
   padding:12px 18px;border-radius:4px;font-family:'Share Tech Mono',monospace;
@@ -427,16 +389,20 @@ body::before{content:'';position:fixed;inset:0;
 .toast.error .toast-title{color:var(--red);}
 .toast.warn .toast-title{color:var(--orange);}
 
-/* API NOT RUNNING BANNER */
 .api-banner{background:rgba(255,59,59,0.08);border:1px solid rgba(255,59,59,0.3);
   border-radius:6px;padding:14px 20px;display:flex;align-items:center;gap:12px;
   font-family:'Share Tech Mono',monospace;font-size:12px;color:var(--red);}
 .api-banner.hidden{display:none;}
+
+.no-alerts{
+  padding:40px 20px;text-align:center;
+  font-family:'Share Tech Mono',monospace;font-size:12px;
+  color:var(--text-dim);
+}
 </style>
 </head>
 <body>
 
-<!-- TOPBAR -->
 <div class="topbar">
   <div class="logo">
     <div class="logo-icon">
@@ -452,19 +418,18 @@ body::before{content:'';position:fixed;inset:0;
   </div>
   <div class="topbar-right">
     <div class="status-badge">
-      <div class="dot cyan"></div>eth0 monitored
+      <div class="dot cyan"></div><span id="interface-label">— monitoring</span>
     </div>
-    <div class="status-badge active">
-      <div class="dot green"></div>ACTIVE
+    <div class="status-badge" id="sniffer-status">
+      <div class="dot orange"></div>CHECKING
     </div>
     <div id="api-indicator" class="api-status offline">API OFFLINE</div>
-    <div class="version">&gt;_ v1.0.0</div>
+    <div class="version">&gt;_ v2.0.0</div>
   </div>
 </div>
 
 <div class="main">
 
-  <!-- API offline banner -->
   <div class="api-banner" id="api-banner">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
          stroke="currentColor" stroke-width="2">
@@ -473,37 +438,34 @@ body::before{content:'';position:fixed;inset:0;
       <line x1="12" y1="9" x2="12" y2="13"/>
       <line x1="12" y1="17" x2="12.01" y2="17"/>
     </svg>
-    API is offline — dashboard showing demo data.
-    Start API with: <strong style="margin-left:6px;">
-      uvicorn api.main:app --reload</strong>
+    API is offline. Please check backend at http://127.0.0.1:8000
   </div>
 
-  <!-- Stat Cards Row 1 -->
   <div class="stats-row">
     <div class="stat-card gc">
       <div class="stat-header">
-        <span class="stat-label">Total Packets</span>
+        <span class="stat-label">Packets Captured</span>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
              stroke="var(--green)" stroke-width="2">
           <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
         </svg>
       </div>
-      <div class="stat-value" id="v-packets">2,849,429</div>
+      <div class="stat-value" id="v-packets">0</div>
     </div>
     <div class="stat-card cc">
       <div class="stat-header">
-        <span class="stat-label">Flows Analyzed</span>
+        <span class="stat-label">Alerts Generated</span>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
              stroke="var(--cyan)" stroke-width="2">
           <rect x="3" y="3" width="18" height="18" rx="2"/>
           <path d="M3 9h18M9 21V9"/>
         </svg>
       </div>
-      <div class="stat-value" id="v-flows">142,856</div>
+      <div class="stat-value" id="v-alerts">0</div>
     </div>
     <div class="stat-card oc">
       <div class="stat-header">
-        <span class="stat-label">Anomalies Detected</span>
+        <span class="stat-label">Scans Detected</span>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
              stroke="var(--orange)" stroke-width="2">
           <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0
@@ -512,69 +474,64 @@ body::before{content:'';position:fixed;inset:0;
           <line x1="12" y1="17" x2="12.01" y2="17"/>
         </svg>
       </div>
-      <div class="stat-value" id="v-anomalies">347</div>
+      <div class="stat-value" id="v-scans">0</div>
     </div>
     <div class="stat-card rc">
       <div class="stat-header">
-        <span class="stat-label">Malicious Flows</span>
+        <span class="stat-label">ML Detections</span>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
              stroke="var(--red)" stroke-width="2">
           <circle cx="12" cy="12" r="10"/>
           <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
         </svg>
       </div>
-      <div class="stat-value" id="v-malicious">89</div>
+      <div class="stat-value" id="v-ml">0</div>
     </div>
   </div>
 
-  <!-- Stat Cards Row 2 -->
   <div class="stats-row2">
     <div class="stat-card pc">
-      <div class="stat-header"><span class="stat-label">Suspicious IPs</span>
+      <div class="stat-header"><span class="stat-label">System Uptime</span>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
              stroke="var(--purple)" stroke-width="2">
           <circle cx="12" cy="12" r="10"/>
-          <line x1="2" y1="12" x2="22" y2="12"/>
-          <path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10
-                   15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/>
+          <polyline points="12 6 12 12 16 14"/>
         </svg>
       </div>
-      <div class="stat-value sm" id="v-suspips">23</div>
+      <div class="stat-value sm" id="v-uptime">0s</div>
     </div>
     <div class="stat-card gc">
-      <div class="stat-header"><span class="stat-label">Model Accuracy</span>
+      <div class="stat-header"><span class="stat-label">Model Status</span>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
              stroke="var(--green)" stroke-width="2">
           <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/>
           <polyline points="22 4 12 14.01 9 11.01"/>
         </svg>
       </div>
-      <div class="stat-value sm green">97.3%</div>
+      <div class="stat-value sm green" id="v-model">LOADING</div>
     </div>
     <div class="stat-card cc">
-      <div class="stat-header"><span class="stat-label">F1 Score</span>
+      <div class="stat-header"><span class="stat-label">Sniffer Status</span>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
              stroke="var(--cyan)" stroke-width="2">
-          <line x1="18" y1="20" x2="18" y2="10"/>
-          <line x1="12" y1="20" x2="12" y2="4"/>
-          <line x1="6" y1="20" x2="6" y2="14"/>
+          <circle cx="11" cy="11" r="8"/>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"/>
         </svg>
       </div>
-      <div class="stat-value sm cyan">94.8%</div>
+      <div class="stat-value sm cyan" id="v-sniffer">CHECKING</div>
     </div>
     <div class="stat-card bc">
-      <div class="stat-header"><span class="stat-label">Avg Packet Size</span>
+      <div class="stat-header"><span class="stat-label">Network Interface</span>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
              stroke="var(--blue)" stroke-width="2">
-          <circle cx="12" cy="12" r="10"/>
-          <polyline points="12 6 12 12 16 14"/>
+          <rect x="2" y="7" width="20" height="14" rx="2" ry="2"/>
+          <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>
         </svg>
       </div>
-      <div class="stat-value sm" style="color:var(--blue)">642B</div>
+      <div class="stat-value sm" style="color:var(--blue)" id="v-interface">—</div>
     </div>
   </div>
 
-  <!-- Timeline + Live Alerts -->
   <div class="bottom-row">
     <div class="panel">
       <div class="panel-header">
@@ -607,12 +564,13 @@ body::before{content:'';position:fixed;inset:0;
         <span class="badge-live"><div class="dot red"></div>LIVE</span>
       </div>
       <div class="panel-body" style="padding:8px;">
-        <div class="alerts-list" id="alerts-list"></div>
+        <div class="alerts-list" id="alerts-list">
+          <div class="no-alerts">Connecting to backend...</div>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- Donut + IP Table -->
   <div class="mid-row">
     <div class="panel">
       <div class="panel-header">
@@ -623,7 +581,7 @@ body::before{content:'';position:fixed;inset:0;
           <div class="donut-canvas-wrap">
             <canvas id="donutChart"></canvas>
             <div class="donut-center">
-              <div class="donut-center-num" id="donut-total">436</div>
+              <div class="donut-center-num" id="donut-total">0</div>
               <div class="donut-center-label">Total Attacks</div>
             </div>
           </div>
@@ -652,25 +610,27 @@ body::before{content:'';position:fixed;inset:0;
     </div>
     <div class="panel">
       <div class="panel-header">
-        <span class="panel-title">Suspicious IPs</span>
-        <span style="font-family:'Share Tech Mono',monospace;font-size:10px;
-                     color:var(--text-dim)">sorted by threat score</span>
+        <span class="panel-title">System Information</span>
       </div>
-      <div class="panel-body" style="padding:0;">
-        <table class="ip-table">
-          <thead>
-            <tr>
-              <th>IP Address</th><th>Origin</th><th>Threat</th>
-              <th>Events</th><th>Last Seen</th><th>Attack Types</th>
-            </tr>
-          </thead>
-          <tbody id="ip-tbody"></tbody>
-        </table>
+      <div class="panel-body">
+        <div class="info-grid">
+          <div class="info-item">
+            <div class="info-label">Packets/sec</div>
+            <div class="info-value" id="v-pps">0</div>
+          </div>
+          <div class="info-item">
+            <div class="info-label">Detection Rate</div>
+            <div class="info-value" id="v-detrate">0%</div>
+          </div>
+          <div class="info-item">
+            <div class="info-label">System Load</div>
+            <div class="info-value" id="v-load">Normal</div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- Model Comparison + Feature Importance -->
   <div class="third-row">
     <div class="panel">
       <div class="panel-header">
@@ -726,13 +686,12 @@ body::before{content:'';position:fixed;inset:0;
       <div class="panel-header">
         <span class="panel-title">Feature Importance</span>
       </div>
-      <div class="panel-body">
+      <div class="panel-body" id="feat-body">
         <div class="feat-list" id="feat-list"></div>
       </div>
     </div>
   </div>
 
-  <!-- System Controls -->
   <div class="panel">
     <div class="panel-header">
       <span class="panel-title">System Controls</span>
@@ -741,25 +700,15 @@ body::before{content:'';position:fixed;inset:0;
     </div>
     <div class="panel-body">
       <div class="action-row">
-
-        <button class="btn btn-primary" id="btn-detect" onclick="runDetection()">
+        <button class="btn btn-secondary" id="btn-stats" onclick="fetchStats()">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
                stroke="currentColor" stroke-width="2.5">
-            <circle cx="11" cy="11" r="8"/>
-            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            <line x1="18" y1="20" x2="18" y2="10"/>
+            <line x1="12" y1="20" x2="12" y2="4"/>
+            <line x1="6" y1="20" x2="6" y2="14"/>
           </svg>
-          Run Detection
+          Refresh Stats
         </button>
-
-        <button class="btn btn-secondary" id="btn-reload" onclick="reloadModel()">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-               stroke="currentColor" stroke-width="2.5">
-            <polyline points="23 4 23 10 17 10"/>
-            <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/>
-          </svg>
-          Reload Model
-        </button>
-
         <button class="btn btn-orange" onclick="exportAlerts()">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
                stroke="currentColor" stroke-width="2.5">
@@ -769,17 +718,6 @@ body::before{content:'';position:fixed;inset:0;
           </svg>
           Export Alerts
         </button>
-
-        <button class="btn btn-purple" id="btn-stats" onclick="fetchStats()">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-               stroke="currentColor" stroke-width="2.5">
-            <line x1="18" y1="20" x2="18" y2="10"/>
-            <line x1="12" y1="20" x2="12" y2="4"/>
-            <line x1="6" y1="20" x2="6" y2="14"/>
-          </svg>
-          Refresh Stats
-        </button>
-
         <button class="btn btn-danger" onclick="clearAlerts()">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
                stroke="currentColor" stroke-width="2.5">
@@ -789,14 +727,12 @@ body::before{content:'';position:fixed;inset:0;
           </svg>
           Clear Alerts
         </button>
-
       </div>
     </div>
   </div>
 
-</div><!-- /main -->
+</div>
 
-<!-- ===== THREAT DETAIL MODAL ===== -->
 <div class="threat-modal" id="threat-modal">
   <div class="threat-detail">
     
@@ -804,8 +740,8 @@ body::before{content:'';position:fixed;inset:0;
       <div class="threat-header-left">
         <span class="threat-sev-badge" id="modal-sev">HIGH</span>
         <div>
-          <div class="threat-title" id="modal-title">Brute Force SSH Attempt</div>
-          <div class="threat-time" id="modal-time">07:55:03 PM — 2026-02-19</div>
+          <div class="threat-title" id="modal-title">Alert Details</div>
+          <div class="threat-time" id="modal-time">—</div>
         </div>
       </div>
       <button class="btn-close" onclick="closeModal()">✕ CLOSE</button>
@@ -813,7 +749,6 @@ body::before{content:'';position:fixed;inset:0;
 
     <div class="threat-body">
       
-      <!-- Overview -->
       <div class="threat-section">
         <div class="section-title">
           <svg viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2">
@@ -823,72 +758,57 @@ body::before{content:'';position:fixed;inset:0;
         </div>
         <div class="info-grid">
           <div class="info-item">
+            <div class="info-label">Alert ID</div>
+            <div class="info-value" id="modal-id">—</div>
+          </div>
+          <div class="info-item">
+            <div class="info-label">Alert Type</div>
+            <div class="info-value" id="modal-type">—</div>
+          </div>
+          <div class="info-item">
+            <div class="info-label">Severity</div>
+            <div class="info-value" id="modal-severity">—</div>
+          </div>
+          <div class="info-item">
             <div class="info-label">Source IP</div>
-            <div class="info-value" id="modal-src">192.0.2.88</div>
+            <div class="info-value" id="modal-src">—</div>
           </div>
           <div class="info-item">
             <div class="info-label">Destination IP</div>
-            <div class="info-value" id="modal-dst">10.0.0.5</div>
+            <div class="info-value" id="modal-dst">—</div>
           </div>
           <div class="info-item">
             <div class="info-label">Protocol</div>
-            <div class="info-value" id="modal-proto">TCP</div>
-          </div>
-          <div class="info-item">
-            <div class="info-label">Source Port</div>
-            <div class="info-value" id="modal-sport">58432</div>
-          </div>
-          <div class="info-item">
-            <div class="info-label">Dest Port</div>
-            <div class="info-value" id="modal-dport">22 (SSH)</div>
-          </div>
-          <div class="info-item">
-            <div class="info-label">Attack Type</div>
-            <div class="info-value" id="modal-attack">Brute Force</div>
+            <div class="info-value" id="modal-proto">—</div>
           </div>
         </div>
       </div>
 
-      <!-- Packet Info -->
-      <div class="threat-section">
-        <div class="section-title">
-          <svg viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" stroke-width="2">
-            <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/>
-          </svg>
-          Packet Information
-        </div>
-        <table class="packet-table">
-          <thead>
-            <tr><th>Field</th><th>Value</th><th>Significance</th></tr>
-          </thead>
-          <tbody id="packet-tbody">
-            <tr><td>Packet Size</td><td>52 bytes</td><td>Standard SSH SYN</td></tr>
-            <tr><td>TTL</td><td>64</td><td>Linux source</td></tr>
-            <tr><td>TCP Flags</td><td>SYN</td><td>Connection attempt</td></tr>
-            <tr><td>Sequence #</td><td>2847391029</td><td>Random initial</td></tr>
-            <tr><td>Failed Attempts</td><td>47</td><td>⚠ Brute force indicator</td></tr>
-          </tbody>
-        </table>
-      </div>
-
-      <!-- Hex Dump -->
       <div class="threat-section">
         <div class="section-title">
           <svg viewBox="0 0 24 24" fill="none" stroke="var(--orange)" stroke-width="2">
             <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
             <polyline points="14 2 14 8 20 8"/>
           </svg>
-          Raw Payload (Hex Dump)
+          Alert Message
         </div>
-        <div class="hex-dump" id="hex-dump">
-<span class="hex-offset">0000</span> <span class="hex-bytes">45 00 00 34 1a 2f 40 00 40 06 22 e7 c0 a8 01 0a</span> <span class="hex-ascii">E..4./@.@.".....</span>
-<span class="hex-offset">0010</span> <span class="hex-bytes">0a 00 00 05 e4 20 00 16 a9 b1 c3 15 00 00 00 00</span> <span class="hex-ascii">..... ..........</span>
-<span class="hex-offset">0020</span> <span class="hex-bytes">a0 02 72 10 fe 28 00 00 02 04 05 b4 04 02 08 0a</span> <span class="hex-ascii">..r..(..........</span>
-<span class="hex-offset">0030</span> <span class="hex-bytes">00 12 d6 87 00 00 00 00 01 03 03 07</span>             <span class="hex-ascii">............</span>
+        <div style="background:var(--card2);border:1px solid var(--border);border-radius:4px;padding:14px;">
+          <p id="modal-msg" style="font-family:'Rajdhani',sans-serif;font-size:14px;color:var(--text-bright);margin:0;">—</p>
         </div>
       </div>
 
-      <!-- Event Timeline -->
+      <div class="threat-section" id="modal-details-section" style="display:none;">
+        <div class="section-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/>
+          </svg>
+          Additional Details
+        </div>
+        <div style="background:var(--card2);border:1px solid var(--border);border-radius:4px;padding:14px;">
+          <pre id="modal-details-content" style="margin:0;font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--text);white-space:pre-wrap;word-break:break-all;"></pre>
+        </div>
+      </div>
+
       <div class="threat-section">
         <div class="section-title">
           <svg viewBox="0 0 24 24" fill="none" stroke="var(--purple)" stroke-width="2">
@@ -896,31 +816,22 @@ body::before{content:'';position:fixed;inset:0;
           </svg>
           Event Timeline
         </div>
-        <div class="timeline" id="timeline">
+        <div class="timeline">
           <div class="timeline-item high">
-            <div class="timeline-time">07:55:03 PM</div>
-            <div class="timeline-event">Initial connection attempt detected</div>
-          </div>
-          <div class="timeline-item high">
-            <div class="timeline-time">07:55:04 PM</div>
-            <div class="timeline-event">Failed authentication (attempt 1-10)</div>
+            <div class="timeline-time" id="modal-time-1">—</div>
+            <div class="timeline-event">Alert detected by NIDS</div>
           </div>
           <div class="timeline-item high">
-            <div class="timeline-time">07:55:06 PM</div>
-            <div class="timeline-event">Failed authentication (attempt 11-30)</div>
+            <div class="timeline-time" id="modal-time-2">—</div>
+            <div class="timeline-event">Threat analysis initiated</div>
           </div>
-          <div class="timeline-item crit">
-            <div class="timeline-time">07:55:08 PM</div>
-            <div class="timeline-event">Brute force threshold exceeded (47 failures)</div>
-          </div>
-          <div class="timeline-item med">
-            <div class="timeline-time">07:55:10 PM</div>
-            <div class="timeline-event">Connection blocked by firewall</div>
+          <div class="timeline-item critical" id="timeline-extra" style="display:none;">
+            <div class="timeline-time" id="modal-time-3">—</div>
+            <div class="timeline-event" id="timeline-event-3">Threshold exceeded</div>
           </div>
         </div>
       </div>
 
-      <!-- Recommended Actions -->
       <div class="threat-section">
         <div class="section-title">
           <svg viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2">
@@ -938,9 +849,8 @@ body::before{content:'';position:fixed;inset:0;
               </svg>
             </div>
             <div class="action-content">
-              <div class="action-title">Block Source IP Immediately</div>
-              <div class="action-desc">Add firewall rule to block 192.0.2.88 for 24 hours. 
-              Run: <code>iptables -A INPUT -s 192.0.2.88 -j DROP</code></div>
+              <div class="action-title">Investigate Source IP</div>
+              <div class="action-desc">Review traffic patterns and determine if source should be blocked.</div>
             </div>
             <span class="action-priority">HIGH</span>
           </div>
@@ -952,9 +862,8 @@ body::before{content:'';position:fixed;inset:0;
               </svg>
             </div>
             <div class="action-content">
-              <div class="action-title">Enable SSH Key-Only Authentication</div>
-              <div class="action-desc">Disable password auth in /etc/ssh/sshd_config and 
-              restart SSH service to prevent future brute force attempts.</div>
+              <div class="action-title">Update Firewall Rules</div>
+              <div class="action-desc">Add firewall rule to block suspicious traffic if pattern continues.</div>
             </div>
             <span class="action-priority">HIGH</span>
           </div>
@@ -966,24 +875,8 @@ body::before{content:'';position:fixed;inset:0;
               </svg>
             </div>
             <div class="action-content">
-              <div class="action-title">Review Authentication Logs</div>
-              <div class="action-desc">Check /var/log/auth.log for compromised accounts. 
-              Look for successful logins from this IP range.</div>
-            </div>
-            <span class="action-priority">MED</span>
-          </div>
-
-          <div class="action-item priority-med">
-            <div class="action-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke-width="2">
-                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
-                <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
-              </svg>
-            </div>
-            <div class="action-content">
-              <div class="action-title">Report to IP Blacklist Services</div>
-              <div class="action-desc">Submit 192.0.2.88 to AbuseIPDB and Fail2Ban cloud 
-              to protect other systems from this attacker.</div>
+              <div class="action-title">Review System Logs</div>
+              <div class="action-desc">Check authentication logs for any successful logins from this source.</div>
             </div>
             <span class="action-priority">MED</span>
           </div>
@@ -997,8 +890,7 @@ body::before{content:'';position:fixed;inset:0;
             </div>
             <div class="action-content">
               <div class="action-title">Document Incident</div>
-              <div class="action-desc">Add incident to security log with timestamp, 
-              source IP, and actions taken for future reference and compliance.</div>
+              <div class="action-desc">Log incident details for security audit trail and compliance.</div>
             </div>
             <span class="action-priority">LOW</span>
           </div>
@@ -1006,52 +898,29 @@ body::before{content:'';position:fixed;inset:0;
         </div>
       </div>
 
-    </div><!-- /threat-body -->
+    </div>
     
-  </div><!-- /threat-detail -->
-</div><!-- /threat-modal -->
+  </div>
+</div>
 
-<!-- Toast -->
 <div class="toast" id="toast">
   <div class="toast-title" id="toast-title">INFO</div>
   <div id="toast-msg">—</div>
 </div>
 
 <script>
-/* ── CONFIG ─────────────────────────────────────────── */
-const API = 'http://localhost:8000';
-let apiOnline = false;
+const API_BASE = 'http://127.0.0.1:8000';
 
-/* ── DEMO DATA ──────────────────────────────────────── */
-const DEMO_ALERTS = [
-  {sev:'crit',time:'08:02:11 PM',type:'Reconnaissance',
-   msg:'Port scan detected from external host',src:'SRC: 203.0.113.42'},
-  {sev:'high',time:'07:58:45 PM',type:'DoS',
-   msg:'Possible DDoS — SYN flood pattern',src:'SRC: 198.51.100.17'},
-  {sev:'high',time:'07:55:03 PM',type:'Brute Force',
-   msg:'Brute force SSH attempt (47 failures)',src:'SRC: 192.0.2.88'},
-  {sev:'med', time:'07:51:19 PM',type:'Exfiltration',
-   msg:'Unusual DNS query volume detected',src:'SRC: 203.0.113.91'},
-  {sev:'high',time:'07:44:02 PM',type:'C2',
-   msg:'Outbound C2 beacon detected',src:'SRC: 198.51.100.44'},
-  {sev:'med', time:'07:39:55 PM',type:'SQLi',
-   msg:'SQL injection pattern in HTTP payload',src:'SRC: 203.0.113.15'},
-];
-
-const IP_DATA = [
-  {ip:'203.0.113.42',country:'CN',threat:92,events:147,
-   ago:'2 min ago', tags:['atk-red','atk-orange'],names:['Port Scan','Recon']},
-  {ip:'198.51.100.17',country:'RU',threat:88,events:2340,
-   ago:'5 min ago', tags:['atk-orange','atk-red'],names:['DDoS','SYN Flood']},
-  {ip:'192.0.2.88',  country:'KP',threat:85,events:47,
-   ago:'8 min ago', tags:['atk-purple'],names:['Brute Force']},
-  {ip:'203.0.113.91',country:'IR',threat:72,events:312,
-   ago:'12 min ago',tags:['atk-yellow'],names:['DNS Tunnel']},
-  {ip:'198.51.100.44',country:'RU',threat:68,events:8,
-   ago:'15 min ago',tags:['atk-blue'],names:['C2']},
-  {ip:'203.0.113.15',country:'BR',threat:65,events:23,
-   ago:'22 min ago',tags:['atk-red'],names:['SQLi']},
-];
+let currentAlerts = [];
+let attackTypeCount = {
+  'Port Scan': 0,
+  'DoS': 0,
+  'DDoS': 0,
+  'Brute Force': 0,
+  'SQL Injection': 0,
+  'XSS': 0,
+  'ML Detection': 0
+};
 
 const FEATURES = [
   {name:'Flow Duration',pct:97},{name:'Byte Count',pct:91},
@@ -1060,25 +929,204 @@ const FEATURES = [
   {name:'Avg Packet Size',pct:65},
 ];
 
-let alertsBuffer = [...DEMO_ALERTS];
+async function fetchAlerts() {
+  try {
+    const response = await fetch(`${API_BASE}/alerts`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    currentAlerts = data.alerts || [];
+    renderAlerts(currentAlerts);
+    updateAttackDistribution(currentAlerts);
+    updateAPIStatus(true);
+  } catch (error) {
+    console.error('Failed to fetch alerts:', error);
+    updateAPIStatus(false);
+  }
+}
 
-/* ── THREAT MODAL ───────────────────────────────────── */
+async function fetchStatus() {
+  try {
+    const response = await fetch(`${API_BASE}/status`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    updateStats(data);
+    updateAPIStatus(true);
+  } catch (error) {
+    console.error('Failed to fetch status:', error);
+    updateAPIStatus(false);
+  }
+}
+
+function updateAPIStatus(online) {
+  const indicator = document.getElementById('api-indicator');
+  const banner = document.getElementById('api-banner');
+  
+  if (online) {
+    indicator.textContent = 'API ONLINE';
+    indicator.className = 'api-status online';
+    banner.classList.add('hidden');
+  } else {
+    indicator.textContent = 'API OFFLINE';
+    indicator.className = 'api-status offline';
+    banner.classList.remove('hidden');
+  }
+}
+
+function updateStats(data) {
+  document.getElementById('v-packets').textContent = data.packets_captured.toLocaleString();
+  document.getElementById('v-alerts').textContent = data.alerts_generated.toLocaleString();
+  document.getElementById('v-scans').textContent = data.scans_detected.toLocaleString();
+  document.getElementById('v-ml').textContent = data.ml_detections.toLocaleString();
+  
+  const uptimeMin = Math.floor(data.uptime_seconds / 60);
+  const uptimeSec = Math.floor(data.uptime_seconds % 60);
+  document.getElementById('v-uptime').textContent = uptimeMin > 0 
+    ? `${uptimeMin}m ${uptimeSec}s` 
+    : `${uptimeSec}s`;
+  
+  document.getElementById('v-model').textContent = data.model_loaded ? 'LOADED' : 'DISABLED';
+  document.getElementById('v-sniffer').textContent = data.sniffer_running ? 'RUNNING' : 'STOPPED';
+  document.getElementById('v-interface').textContent = data.interface || '—';
+  
+  const snifferBadge = document.getElementById('sniffer-status');
+  if (data.sniffer_running) {
+    snifferBadge.innerHTML = '<div class="dot green"></div>ACTIVE';
+    snifferBadge.className = 'status-badge active';
+  } else {
+    snifferBadge.innerHTML = '<div class="dot red"></div>STOPPED';
+    snifferBadge.className = 'status-badge';
+  }
+  
+  document.getElementById('interface-label').textContent = `${data.interface} monitored`;
+  
+  const pps = data.uptime_seconds > 0 ? Math.floor(data.packets_captured / data.uptime_seconds) : 0;
+  document.getElementById('v-pps').textContent = pps.toLocaleString();
+  
+  const detRate = data.packets_captured > 0 ? ((data.alerts_generated / data.packets_captured) * 100).toFixed(2) : 0;
+  document.getElementById('v-detrate').textContent = `${detRate}%`;
+  
+  document.getElementById('v-load').textContent = data.packets_captured > 10000 ? 'High' : 'Normal';
+}
+
+function updateAttackDistribution(alerts) {
+  attackTypeCount = {
+    'Port Scan': 0,
+    'DoS': 0,
+    'DDoS': 0,
+    'Brute Force': 0,
+    'SQL Injection': 0,
+    'XSS': 0,
+    'ML Detection': 0
+  };
+  
+  alerts.forEach(alert => {
+    const type = alert.type || 'Other';
+    if (attackTypeCount[type] !== undefined) {
+      attackTypeCount[type]++;
+    }
+  });
+  
+  const total = Object.values(attackTypeCount).reduce((a, b) => a + b, 0);
+  document.getElementById('donut-total').textContent = total;
+  
+  if (window.donutChart) {
+    window.donutChart.data.datasets[0].data = [
+      attackTypeCount['Port Scan'] + attackTypeCount['DoS'] + attackTypeCount['DDoS'],
+      attackTypeCount['Port Scan'],
+      attackTypeCount['Brute Force'],
+      attackTypeCount['SQL Injection'] + attackTypeCount['XSS'],
+      attackTypeCount['ML Detection'],
+      0
+    ];
+    window.donutChart.update();
+  }
+}
+
+function renderAlerts(alerts) {
+  const container = document.getElementById('alerts-list');
+  
+  if (!alerts || alerts.length === 0) {
+    container.innerHTML = '<div class="no-alerts">No alerts detected.</div>';
+    return;
+  }
+  
+  container.innerHTML = '';
+  
+  const severityLabel = {
+    critical: 'CRIT',
+    high: 'HIGH',
+    medium: 'MED',
+    low: 'LOW'
+  };
+  
+  const severityClass = {
+    critical: 'sev-critical',
+    high: 'sev-high',
+    medium: 'sev-medium',
+    low: 'sev-low'
+  };
+  
+  alerts.forEach((alert, index) => {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert-item ${alert.severity}`;
+    alertDiv.onclick = () => openThreatDetail(alert);
+    
+    const timeOnly = alert.timestamp ? alert.timestamp.split(' ')[1] || alert.timestamp : '—';
+    
+    alertDiv.innerHTML = `
+      <div class="alert-top">
+        <span class="alert-sev ${severityClass[alert.severity] || 'sev-low'}">${severityLabel[alert.severity] || alert.severity.toUpperCase()}</span>
+        <span class="alert-time">${timeOnly}</span>
+        <span class="alert-type">${alert.type || 'Alert'}</span>
+      </div>
+      <div class="alert-msg">${alert.message || 'No message'}</div>
+      <div class="alert-src">SRC: ${alert.src || '—'}</div>
+    `;
+    
+    container.appendChild(alertDiv);
+  });
+}
+
 function openThreatDetail(alert) {
-  // Populate modal with alert data
-  document.getElementById('modal-sev').textContent = alert.sev.toUpperCase();
-  document.getElementById('modal-sev').className = `threat-sev-badge ${alert.sev}`;
-  document.getElementById('modal-title').textContent = alert.msg;
-  document.getElementById('modal-time').textContent = `${alert.time} — 2026-02-19`;
-  document.getElementById('modal-src').textContent = alert.src.replace('SRC: ','');
-  document.getElementById('modal-dst').textContent = '10.0.0.5';
-  document.getElementById('modal-proto').textContent = 'TCP';
-  document.getElementById('modal-sport').textContent = Math.floor(Math.random()*10000+50000);
-  document.getElementById('modal-dport').textContent = '22 (SSH)';
-  document.getElementById('modal-attack').textContent = alert.type;
-
-  // Show modal
+  document.getElementById('modal-sev').textContent = alert.severity.toUpperCase();
+  document.getElementById('modal-sev').className = `threat-sev-badge ${alert.severity}`;
+  document.getElementById('modal-title').textContent = alert.message || 'Alert Details';
+  document.getElementById('modal-time').textContent = alert.timestamp || '—';
+  
+  document.getElementById('modal-id').textContent = alert.id || '—';
+  document.getElementById('modal-type').textContent = alert.type || '—';
+  document.getElementById('modal-severity').textContent = alert.severity.toUpperCase();
+  document.getElementById('modal-src').textContent = alert.src || '—';
+  document.getElementById('modal-dst').textContent = alert.dst || '—';
+  document.getElementById('modal-proto').textContent = alert.protocol || '—';
+  document.getElementById('modal-msg').textContent = alert.message || 'No message available';
+  
+  document.getElementById('modal-time-1').textContent = alert.timestamp || '—';
+  const ts = new Date(alert.timestamp || Date.now());
+  ts.setSeconds(ts.getSeconds() + 1);
+  document.getElementById('modal-time-2').textContent = ts.toLocaleString();
+  
+  const detailsSection = document.getElementById('modal-details-section');
+  const detailsContent = document.getElementById('modal-details-content');
+  
+  if (alert.details && Object.keys(alert.details).length > 0) {
+    detailsSection.style.display = 'block';
+    detailsContent.textContent = JSON.stringify(alert.details, null, 2);
+    
+    const timelineExtra = document.getElementById('timeline-extra');
+    if (alert.details.ports_scanned) {
+      timelineExtra.style.display = 'block';
+      ts.setSeconds(ts.getSeconds() + 1);
+      document.getElementById('modal-time-3').textContent = ts.toLocaleString();
+      document.getElementById('timeline-event-3').textContent = `Port scan threshold exceeded (${alert.details.ports_scanned} ports)`;
+    }
+  } else {
+    detailsSection.style.display = 'none';
+    document.getElementById('timeline-extra').style.display = 'none';
+  }
+  
   document.getElementById('threat-modal').classList.add('show');
-  document.body.style.overflow = 'hidden'; // prevent background scroll
+  document.body.style.overflow = 'hidden';
 }
 
 function closeModal() {
@@ -1086,221 +1134,52 @@ function closeModal() {
   document.body.style.overflow = 'auto';
 }
 
-// Close modal on ESC key
-document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') closeModal();
-});
-
-// Close modal on background click
-document.getElementById('threat-modal').addEventListener('click', e => {
-  if (e.target.id === 'threat-modal') closeModal();
-});
-
-/* ── API CALLS ──────────────────────────────────────── */
-async function checkAPI() {
-  try {
-    const r = await fetch(`${API}/health`, {signal: AbortSignal.timeout(2000)});
-    const d = await r.json();
-    apiOnline = true;
-    document.getElementById('api-indicator').textContent = 'API ONLINE';
-    document.getElementById('api-indicator').className   = 'api-status online';
-    document.getElementById('api-banner').classList.add('hidden');
-    return d;
-  } catch {
-    apiOnline = false;
-    document.getElementById('api-indicator').textContent = 'API OFFLINE';
-    document.getElementById('api-indicator').className   = 'api-status offline';
-    document.getElementById('api-banner').classList.remove('hidden');
-    return null;
-  }
-}
-
-async function apiFetch(path, method='GET') {
-  const r = await fetch(`${API}${path}`, {method,
-    signal: AbortSignal.timeout(10000)});
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  return r.json();
-}
-
-/* ── BUTTON: Run Detection ──────────────────────────── */
-async function runDetection() {
-  const btn = document.getElementById('btn-detect');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span> Running…';
-
-  if (!apiOnline) {
-    await new Promise(r => setTimeout(r, 1200));
-    const found = Math.floor(Math.random()*15)+3;
-    document.getElementById('v-anomalies').textContent =
-      (parseInt(document.getElementById('v-anomalies')
-        .textContent.replace(/,/g,'')) + found).toLocaleString();
-    addDemoAlert();
-    showToast('DETECTION COMPLETE',
-      `${found} anomalies found in batch of 500 (demo mode)`,'');
-  } else {
-    try {
-      const d = await apiFetch('/detect?batch_size=500','POST');
-      document.getElementById('v-anomalies').textContent =
-        d.anomalies_found.toLocaleString();
-      document.getElementById('v-flows').textContent =
-        d.total_samples.toLocaleString();
-
-      if (d.anomalies_found > 0) {
-        alertsBuffer.unshift({
-          sev: d.anomalies_found > 20 ? 'crit' :
-               d.anomalies_found > 10 ? 'high' : 'med',
-          time: new Date().toLocaleTimeString(),
-          type: 'ML Detection',
-          msg: `${d.anomalies_found} anomalies in ${d.total_samples} samples `+
-               `(${d.anomaly_rate_pct}%)`,
-          src: `Processing time: ${d.processing_time_ms}ms`
-        });
-        if (alertsBuffer.length > 20) alertsBuffer.pop();
-        renderAlerts(alertsBuffer);
-      }
-      showToast('DETECTION COMPLETE',
-        `${d.anomalies_found}/${d.total_samples} anomalies `+
-        `(${d.anomaly_rate_pct}%) in ${d.processing_time_ms}ms`,'');
-      setLastAction('Detection ran — ' + new Date().toLocaleTimeString());
-    } catch(e) {
-      showToast('ERROR', e.message,'error');
-    }
-  }
-
-  btn.disabled = false;
-  btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24"
-    fill="none" stroke="currentColor" stroke-width="2.5">
-    <circle cx="11" cy="11" r="8"/>
-    <line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> Run Detection`;
-}
-
-/* ── BUTTON: Reload Model ───────────────────────────── */
-async function reloadModel() {
-  const btn = document.getElementById('btn-reload');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span> Loading…';
-
-  if (!apiOnline) {
-    await new Promise(r=>setTimeout(r,1000));
-    showToast('MODEL READY','Isolation Forest reloaded (demo)','');
-  } else {
-    try {
-      const d = await apiFetch('/model/reload','POST');
-      showToast('MODEL READY', d.message,'');
-      setLastAction('Model reloaded — ' + new Date().toLocaleTimeString());
-    } catch(e) {
-      showToast('ERROR', e.message,'error');
-    }
-  }
-
-  btn.disabled = false;
-  btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24"
-    fill="none" stroke="currentColor" stroke-width="2.5">
-    <polyline points="23 4 23 10 17 10"/>
-    <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg> Reload Model`;
-}
-
-/* ── BUTTON: Refresh Stats ──────────────────────────── */
-async function fetchStats() {
-  if (!apiOnline) {
-    showToast('STATS (DEMO)',
-      'Packets: 2,849,429 | Flows: 142,856 | Anomalies: 347','');
+function exportAlerts() {
+  if (!currentAlerts || currentAlerts.length === 0) {
+    showToast('NO ALERTS', 'No alerts available to export', 'warn');
     return;
   }
-  try {
-    const d = await apiFetch('/stats');
-    document.getElementById('v-packets').textContent =
-      d.total_traffic_analyzed.toLocaleString();
-    document.getElementById('v-anomalies').textContent =
-      d.total_anomalies_detected.toLocaleString();
-    showToast('STATS REFRESHED',
-      `Analyzed: ${d.total_traffic_analyzed} | `+
-      `Anomalies: ${d.total_anomalies_detected} | `+
-      `Rate: ${d.detection_rate_pct}%`,'');
-    setLastAction('Stats refreshed — '+new Date().toLocaleTimeString());
-  } catch(e) {
-    showToast('ERROR',e.message,'error');
-  }
-}
-
-/* ── BUTTON: Export Alerts ──────────────────────────── */
-function exportAlerts() {
-  const rows = ['Severity,Time,Type,Message,Source'];
-  alertsBuffer.forEach(a =>
-    rows.push(`${a.sev},${a.time},${a.type},"${a.msg}",${a.src}`)
+  
+  const rows = ['ID,Type,Severity,Source,Destination,Protocol,Message,Timestamp'];
+  currentAlerts.forEach(a =>
+    rows.push(`${a.id || ''},${a.type || ''},${a.severity || ''},${a.src || ''},${a.dst || ''},${a.protocol || ''},"${a.message || ''}",${a.timestamp || ''}`)
   );
   const blob = new Blob([rows.join('\n')],{type:'text/csv'});
   const url  = URL.createObjectURL(blob);
   const link = document.createElement('a');
-  link.href = url; link.download = 'nids_alerts.csv'; link.click();
-  showToast('EXPORTED','nids_alerts.csv downloaded','');
+  link.href = url; link.download = 'nids_alerts_export.csv'; link.click();
+  showToast('EXPORTED','Alerts exported to CSV','');
   setLastAction('Alerts exported');
 }
 
-/* ── BUTTON: Clear Alerts ───────────────────────────── */
-function clearAlerts() {
-  alertsBuffer = [];
-  renderAlerts([]);
-  showToast('CLEARED','Alert log cleared','warn');
-  setLastAction('Alerts cleared — '+new Date().toLocaleTimeString());
+async function clearAlerts() {
+  try {
+    const response = await fetch(`${API_BASE}/alerts`, { method: 'DELETE' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    currentAlerts = [];
+    renderAlerts([]);
+    showToast('CLEARED','All alerts cleared from backend','');
+    setLastAction('Alerts cleared');
+    await fetchStats();
+  } catch (error) {
+    showToast('ERROR', 'Failed to clear alerts', 'error');
+  }
 }
 
-/* ── HELPERS ────────────────────────────────────────── */
 function setLastAction(msg) {
-  document.getElementById('last-action').textContent = msg;
+  document.getElementById('last-action').textContent = msg + ' — ' + new Date().toLocaleTimeString();
 }
 
-function addDemoAlert() {
-  const opts = [
-    {sev:'high',type:'DoS',   msg:'SYN flood burst detected',   src:'SRC: 45.33.32.156'},
-    {sev:'med', type:'Probe', msg:'UDP sweep across subnet',     src:'SRC: 10.0.0.201'},
-    {sev:'crit',type:'C2',    msg:'Known C2 IP contacted',       src:'SRC: 185.220.101.5'},
-  ];
-  const o = opts[Math.floor(Math.random()*opts.length)];
-  alertsBuffer.unshift({
-    ...o, time: new Date().toLocaleTimeString()
-  });
-  if(alertsBuffer.length>20) alertsBuffer.pop();
-  renderAlerts(alertsBuffer);
+function showToast(title,msg,type='') {
+  const t = document.getElementById('toast');
+  document.getElementById('toast-title').textContent = title;
+  document.getElementById('toast-msg').textContent   = msg;
+  t.className = 'toast '+type;
+  t.classList.add('show');
+  clearTimeout(t._to);
+  t._to = setTimeout(()=>t.classList.remove('show'),4000);
 }
 
-/* ── RENDER IPs ─────────────────────────────────────── */
-function renderIPs() {
-  document.getElementById('ip-tbody').innerHTML = IP_DATA.map(r=>{
-    const tc = r.threat>=85?'threat-crit':r.threat>=70?'threat-high':'threat-med';
-    const tags = r.tags.map((t,i)=>
-      `<span class="atk-tag ${t}">${r.names[i]}</span>`).join('');
-    return `<tr>
-      <td><span class="ip-addr">${r.ip}</span></td>
-      <td><span class="country-badge">${r.country}</span></td>
-      <td><span class="threat-score ${tc}">${r.threat}</span></td>
-      <td><span class="events-count">${r.events.toLocaleString()}</span></td>
-      <td><span class="time-ago">${r.ago}</span></td>
-      <td>${tags}</td>
-    </tr>`;
-  }).join('');
-}
-
-/* ── RENDER ALERTS ──────────────────────────────────── */
-function renderAlerts(data) {
-  const sL = {crit:'CRIT',high:'HIGH',med:'MED',low:'LOW'};
-  const sC = {crit:'sev-crit',high:'sev-high',med:'sev-med',low:'sev-low'};
-  document.getElementById('alerts-list').innerHTML = data.length
-    ? data.map((a,i)=>`
-      <div class="alert-item ${a.sev}" onclick="openThreatDetail(alertsBuffer[${i}])">
-        <div class="alert-top">
-          <span class="alert-sev ${sC[a.sev]}">${sL[a.sev]}</span>
-          <span class="alert-time">${a.time}</span>
-          <span class="alert-type">${a.type}</span>
-        </div>
-        <div class="alert-msg">${a.msg}</div>
-        <div class="alert-src">${a.src}</div>
-      </div>`).join('')
-    : `<div style="padding:20px;text-align:center;font-family:'Share Tech Mono',
-         monospace;font-size:11px;color:var(--text-dim)">No alerts</div>`;
-}
-
-/* ── RENDER FEATURES ────────────────────────────────── */
 function renderFeatures() {
   document.getElementById('feat-list').innerHTML = FEATURES.map(f=>`
     <div class="feat-item">
@@ -1317,15 +1196,14 @@ function renderFeatures() {
   },300);
 }
 
-/* ── CHARTS ─────────────────────────────────────────── */
 function initDonut() {
-  new Chart(document.getElementById('donutChart'),{
+  window.donutChart = new Chart(document.getElementById('donutChart'),{
     type:'doughnut',
     data:{
       labels:['DoS/DDoS','Reconnaissance','Brute Force',
               'Injection','C2 Comms','Other'],
       datasets:[{
-        data:[185,98,72,44,22,15],
+        data:[0,0,0,0,0,0],
         backgroundColor:['#ff3b3b','#ff9500','#bf5af2',
                          '#00e5ff','#00ff88','#6e7681'],
         borderColor:'#111820',borderWidth:3,hoverOffset:6,
@@ -1341,75 +1219,104 @@ function initDonut() {
 }
 
 function initTimeline() {
-  const hours=[];
-  for(let h=0;h<24;h++) hours.push(String(h).padStart(2,'0')+':00');
-  new Chart(document.getElementById('timelineChart'),{
-    type:'line',
-    data:{labels:hours,datasets:[
-      {label:'normal',
-       data:[4200,3800,3100,2800,2600,2900,3500,4800,6200,7100,
-             6800,6500,6900,7400,6700,6200,5800,6100,7800,7200,
-             6400,5900,5100,4500],
-       borderColor:'#00ff88',backgroundColor:'rgba(0,255,136,0.06)',
-       tension:.4,fill:true,borderWidth:2,pointRadius:0,pointHoverRadius:4},
-      {label:'suspicious',
-       data:[120,80,60,45,40,55,90,130,180,210,195,170,
-             185,220,195,180,165,175,230,210,190,170,145,125],
-       borderColor:'#ff9500',backgroundColor:'rgba(255,149,0,0.05)',
-       tension:.4,fill:true,borderWidth:2,pointRadius:0,pointHoverRadius:4},
-      {label:'malicious',
-       data:[8,5,3,2,2,3,6,9,12,15,13,11,12,16,13,11,10,11,17,15,13,11,9,7],
-       borderColor:'#ff3b3b',backgroundColor:'rgba(255,59,59,0.05)',
-       tension:.4,fill:true,borderWidth:2,pointRadius:0,pointHoverRadius:4},
-    ]},
-    options:{responsive:true,maintainAspectRatio:false,
-      interaction:{mode:'index',intersect:false},
-      plugins:{legend:{display:false},
-        tooltip:{backgroundColor:'#0d1117',borderColor:'#1e2d3d',
-          borderWidth:1,titleColor:'#e6edf3',bodyColor:'#c9d1d9',
-          titleFont:{family:'Share Tech Mono',size:11},
-          bodyFont:{family:'Share Tech Mono',size:11}}},
-      scales:{
-        x:{grid:{color:'rgba(30,45,61,0.6)'},
-           ticks:{color:'#6e7681',font:{family:'Share Tech Mono',size:10},
-                  maxTicksLimit:8}},
-        y:{grid:{color:'rgba(30,45,61,0.6)'},
-           ticks:{color:'#6e7681',font:{family:'Share Tech Mono',size:10}}}
-      }}
+  const hours = [];
+  for (let h = 0; h < 24; h++) hours.push(String(h).padStart(2, '0') + ':00');
+  
+  new Chart(document.getElementById('timelineChart'), {
+    type: 'line',
+    data: {
+      labels: hours,
+      datasets: [
+        {
+          label: 'normal',
+          data: Array(24).fill(0),
+          borderColor: '#00ff88',
+          backgroundColor: 'rgba(0,255,136,0.06)',
+          tension: .4,
+          fill: true,
+          borderWidth: 2,
+          pointRadius: 0,
+          pointHoverRadius: 4
+        },
+        {
+          label: 'suspicious',
+          data: Array(24).fill(0),
+          borderColor: '#ff9500',
+          backgroundColor: 'rgba(255,149,0,0.05)',
+          tension: .4,
+          fill: true,
+          borderWidth: 2,
+          pointRadius: 0,
+          pointHoverRadius: 4
+        },
+        {
+          label: 'malicious',
+          data: Array(24).fill(0),
+          borderColor: '#ff3b3b',
+          backgroundColor: 'rgba(255,59,59,0.05)',
+          tension: .4,
+          fill: true,
+          borderWidth: 2,
+          pointRadius: 0,
+          pointHoverRadius: 4
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#0d1117',
+          borderColor: '#1e2d3d',
+          borderWidth: 1,
+          titleColor: '#e6edf3',
+          bodyColor: '#c9d1d9',
+          titleFont: { family: 'Share Tech Mono', size: 11 },
+          bodyFont: { family: 'Share Tech Mono', size: 11 }
+        }
+      },
+      scales: {
+        x: {
+          grid: { color: 'rgba(30,45,61,0.6)' },
+          ticks: {
+            color: '#6e7681',
+            font: { family: 'Share Tech Mono', size: 10 },
+            maxTicksLimit: 8
+          }
+        },
+        y: {
+          grid: { color: 'rgba(30,45,61,0.6)' },
+          ticks: {
+            color: '#6e7681',
+            font: { family: 'Share Tech Mono', size: 10 }
+          }
+        }
+      }
+    }
   });
 }
 
-/* ── TOAST ──────────────────────────────────────────── */
-function showToast(title,msg,type='') {
-  const t = document.getElementById('toast');
-  document.getElementById('toast-title').textContent = title;
-  document.getElementById('toast-msg').textContent   = msg;
-  t.className = 'toast '+type;
-  t.classList.add('show');
-  clearTimeout(t._to);
-  t._to = setTimeout(()=>t.classList.remove('show'),4000);
-}
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeModal();
+});
 
-/* ── LIVE COUNTER SIMULATION ────────────────────────── */
-function startLiveCounters() {
-  setInterval(()=>{
-    const el = document.getElementById('v-packets');
-    el.textContent =
-      (parseInt(el.textContent.replace(/,/g,'')) +
-       Math.floor(Math.random()*60+10)).toLocaleString();
-  },2000);
-}
+document.getElementById('threat-modal').addEventListener('click', e => {
+  if (e.target.id === 'threat-modal') closeModal();
+});
 
-/* ── INIT ───────────────────────────────────────────── */
-document.addEventListener('DOMContentLoaded',async()=>{
-  renderIPs();
-  renderAlerts(alertsBuffer);
-  renderFeatures();
-  initDonut();
+document.addEventListener('DOMContentLoaded', async () => {
   initTimeline();
-  startLiveCounters();
-  await checkAPI();
-  setInterval(checkAPI,10000);
+  initDonut();
+  renderFeatures();
+  
+  await fetchStatus();
+  await fetchAlerts();
+  
+  setInterval(fetchAlerts, 2000);
+  setInterval(fetchStatus, 2000);
 });
 </script>
 </body>
