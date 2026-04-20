@@ -1,164 +1,103 @@
 """
-═══════════════════════════════════════════════════════════════
 REAL-TIME NETWORK INTRUSION DETECTION SYSTEM (NIDS)
-═══════════════════════════════════════════════════════════════
+main.py — Rule-Based Engine + FastAPI Server
 
-Integrated FastAPI + Live Packet Capture + ML Detection
+Responsibilities:
+  - Signature detection (NULL/XMAS/FIN/SYN scans)
+  - Behavioral detection (port scan, SYN flood, brute force, DDoS, UDP amp)
+  - Correlation engine (attack chain detection)
+  - REST API (alerts, status, control)
+  - Receives ML alerts from live_ids_v2.py via POST /alert
 
-Architecture:
-  1. FastAPI web server with REST endpoints
-  2. Background packet capture thread (Scapy)
-  3. Port scan detection (behavior-based)
-  4. ML-based detection (Random Forest)
-  5. Thread-safe alert storage
-  6. Real-time monitoring dashboard support
-
-Usage:
-  sudo uvicorn main:app --host 0.0.0.0 --port 8000
-
-Author: Claude & Warren
-Date: 2026-02-19
-═══════════════════════════════════════════════════════════════
+ML detection is intentionally NOT done here.
+live_ids_v2.py handles flow-based ML and forwards alerts to /alert.
 """
 
 import threading
 import time
-import joblib
-import numpy as np
-from datetime import datetime, timedelta
 from collections import defaultdict, deque
-from typing import Dict, List, Optional, Deque
+from datetime import datetime
+from typing import Deque, Dict, List, Optional
+
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
-# Scapy imports
 try:
-    from scapy.all import sniff, IP, TCP, UDP, ICMP
+    from scapy.all import ICMP, IP, TCP, UDP, sniff
     SCAPY_AVAILABLE = True
 except ImportError:
     SCAPY_AVAILABLE = False
-    print("⚠ WARNING: Scapy not installed. Live capture disabled.")
-    print("Install with: pip install scapy")
+    print("[WARN] Scapy not available. Packet capture disabled.")
 
-# ═══════════════════════════════════════════════════════════════
-# CONFIGURATION
-# ═══════════════════════════════════════════════════════════════
+# ─────────────────────────────────────────────
+#  CONFIG  (tune these to your environment)
+# ─────────────────────────────────────────────
+NETWORK_INTERFACE = "ens37"
 
-NETWORK_INTERFACE = "ens37"  # Change this to your interface (eth0, wlan0, etc.)
-PORT_SCAN_THRESHOLD = 5     # Ports contacted within time window
-PORT_SCAN_WINDOW = 5         # Seconds
-MAX_ALERTS_STORED = 200      # Maximum alerts kept in memory
-FLOW_TIMEOUT = 60            # Seconds before flow expires
-STEALTH_SCAN_THRESHOLD = 15
-STEALTH_SCAN_WINDOW = 60  # seconds
-DDOS_PACKET_RATE_THRESHOLD = 200  # packets per window
-DDOS_WINDOW = 3  # seconds
-# ═════════════════════════════════
-# GLOBAL STATE (Thread-Safe)
-# ═══════════════════════════════════════════════════════════════
+PORT_SCAN_THRESHOLD     = 5      # distinct ports within window → alert
+PORT_SCAN_WINDOW        = 5      # seconds
 
-alerts_lock = threading.Lock()
+STEALTH_SCAN_THRESHOLD  = 15     # distinct ports within window → alert
+STEALTH_SCAN_WINDOW     = 60     # seconds
+
+DDOS_PACKET_THRESHOLD   = 200    # packets within window → alert
+DDOS_WINDOW             = 3      # seconds
+
+SYN_FLOOD_THRESHOLD     = 100    # SYN packets without ACKs
+SYN_FLOOD_WINDOW        = 5      # seconds
+SYN_ACK_RATIO_LIMIT     = 5      # SYN:ACK ratio that indicates flood
+
+BRUTE_FORCE_THRESHOLD   = 8      # attempts within window → alert
+BRUTE_FORCE_WINDOW      = 60     # seconds
+BRUTE_FORCE_PORTS       = {22, 21, 23, 25, 110, 143, 3306, 3389, 5432}
+
+UDP_AMP_PORTS           = {53, 123, 1900, 11211, 19, 17}
+UDP_AMP_THRESHOLD       = 50     # requests within window → alert
+UDP_AMP_WINDOW          = 10     # seconds
+
+MAX_ALERTS_STORED       = 500
+CORRELATION_EVENT_LIMIT = 15
+
+# ─────────────────────────────────────────────
+#  GLOBAL STATE
+# ─────────────────────────────────────────────
+alerts_lock  = threading.Lock()
 alerts: Deque[Dict] = deque(maxlen=MAX_ALERTS_STORED)
 
-scan_tracker_lock = threading.Lock()
-scan_tracker: Dict[str, Dict] = defaultdict(lambda: {
-    'ports': set(),
-    'first_seen': None,
-    'last_seen': None
-})
+# Per-source trackers — all use defaultdict so keys are created on first access
+scan_tracker       = defaultdict(lambda: {"ports": set(), "first_seen": None})
+stealth_tracker    = defaultdict(lambda: {"ports": set(), "timestamps": []})
+ddos_tracker       = defaultdict(lambda: {"timestamps": []})
+syn_tracker        = defaultdict(lambda: {"syn": 0, "ack": 0})
+bruteforce_tracker = defaultdict(lambda: {"attempts": 0, "timestamps": []})
+udp_amp_tracker    = defaultdict(lambda: {"timestamps": []})
 
-flow_tracker_lock = threading.Lock()
-flow_tracker: Dict[str, Dict] = {}
-
-sniffer_running = False
-sniffer_thread: Optional[threading.Thread] = None
-
-ml_model = None
-ml_encoder = None
-model_loaded = False
+correlation_tracker = defaultdict(lambda: {"events": []})
+correlation_lock    = threading.Lock()
 
 system_stats = {
-    'packets_captured': 0,
-    'alerts_generated': 0,
-    'scans_detected': 0,
-    'ml_detections': 0,
-    'start_time': datetime.now()
+    "packets_captured": 0,
+    "alerts_generated": 0,
+    "start_time": None,
+    "running": False,
 }
-# ─── Stealth Scan Tracker ─────────────────────────────────────
-stealth_tracker_lock = threading.Lock()
-stealth_tracker = defaultdict(lambda: {
-    "ports": set(),
-    "timestamps": []
-})
 
-# ─── DDoS Tracker ─────────────────────────────────────────────
-ddos_tracker_lock = threading.Lock()
-ddos_tracker = defaultdict(lambda: {
-    "timestamps": []
-})
-# ═══════════════════════════════════════════════════════════════
-# PYDANTIC SCHEMAS
-# ═══════════════════════════════════════════════════════════════
+sniffer_thread: Optional[threading.Thread] = None
+sniffer_stop_event = threading.Event()
 
-class Alert(BaseModel):
-    id: int
-    type: str
-    severity: str
-    src: str
-    dst: Optional[str] = None
-    protocol: str
-    message: str
-    timestamp: str
-    details: Optional[Dict] = None
+# ─────────────────────────────────────────────
+#  ALERT ENGINE
+# ─────────────────────────────────────────────
+def _new_alert_id() -> int:
+    """Thread-safe ID increment — caller must NOT hold alerts_lock."""
+    with alerts_lock:
+        system_stats["alerts_generated"] += 1
+        return system_stats["alerts_generated"]
 
-class SystemStatus(BaseModel):
-    sniffer_running: bool
-    model_loaded: bool
-    interface: str
-    packets_captured: int
-    alerts_generated: int
-    scans_detected: int
-    ml_detections: int
-    uptime_seconds: float
-
-# ═══════════════════════════════════════════════════════════════
-# ML MODEL LOADING
-# ═══════════════════════════════════════════════════════════════
-
-def load_ml_models():
-    """Load Random Forest model and OneHotEncoder at startup."""
-    global ml_model, ml_encoder, model_loaded
-    
-    model_path = Path("models/random_forest_v2.pkl")
-    encoder_path = Path("models/rf_encoder_v2.pkl")
-    
-    if not model_path.exists():
-        print(f"⚠ Model not found: {model_path}")
-        print("  ML detection disabled. Train model first.")
-        return False
-    
-    if not encoder_path.exists():
-        print(f"⚠ Encoder not found: {encoder_path}")
-        print("  ML detection disabled. Save encoder first.")
-        return False
-    
-    try:
-        ml_model = joblib.load(model_path)
-        ml_encoder = joblib.load(encoder_path)
-        model_loaded = True
-        print(f"✓ ML Model loaded: {model_path}")
-        print(f"✓ Encoder loaded: {encoder_path}")
-        return True
-    except Exception as e:
-        print(f"✗ Error loading ML models: {e}")
-        return False
-
-# ═══════════════════════════════════════════════════════════════
-# ALERT GENERATION
-# ═══════════════════════════════════════════════════════════════
 
 def generate_alert(
     alert_type: str,
@@ -167,531 +106,461 @@ def generate_alert(
     dst: Optional[str],
     protocol: str,
     message: str,
-    details: Optional[Dict] = None
-):
-    """Thread-safe alert generation."""
-    with alerts_lock:
-        alert = {
-            'id': system_stats['alerts_generated'] + 1,
-            'type': alert_type,
-            'severity': severity,
-            'src': src,
-            'dst': dst,
-            'protocol': protocol,
-            'message': message,
-            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            'details': details or {}
-        }
-        alerts.append(alert)
-        system_stats['alerts_generated'] += 1
-        
-        # Log to console
-        sev_icon = {
-            'critical': '🔴',
-            'high': '🟠',
-            'medium': '🟡',
-            'low': '🟢'
-        }.get(severity, '⚪')
-        
-        print(f"{sev_icon} [{severity.upper()}] {alert_type}: {message}")
-
-# ═══════════════════════════════════════════════════════════════
-# PORT SCAN DETECTION (Behavior-Based)
-# ═══════════════════════════════════════════════════════════════
-
-def detect_port_scan(src_ip: str, dst_ip: str, dst_port: int):
-    """
-    Detect port scans by tracking SYN packets.
-    Alert if a source IP contacts >10 different ports within 5 seconds.
-    """
-    with scan_tracker_lock:
-        tracker = scan_tracker[src_ip]
-        now = datetime.now()
-        
-        # Initialize first_seen
-        if tracker['first_seen'] is None:
-            tracker['first_seen'] = now
-        
-        tracker['last_seen'] = now
-        tracker['ports'].add(dst_port)
-        
-        # Check if scan window expired
-        time_elapsed = (now - tracker['first_seen']).total_seconds()
-        
-        if time_elapsed > PORT_SCAN_WINDOW:
-            # Reset tracker
-            tracker['ports'] = {dst_port}
-            tracker['first_seen'] = now
-            return
-        
-        # Check threshold
-        num_ports = len(tracker['ports'])
-        if num_ports > PORT_SCAN_THRESHOLD:
-            # ALERT: Port scan detected!
-            generate_alert(
-                alert_type='Port Scan',
-                severity='high',
-                src=src_ip,
-                dst=dst_ip,
-                protocol='TCP',
-                message=f'Port scan detected: {num_ports} ports in {time_elapsed:.1f}s',
-                details={
-                    'ports_scanned': num_ports,
-                    'time_window': f'{time_elapsed:.1f}s',
-                    'ports': sorted(list(tracker['ports']))[:20]  # First 20 ports
-                }
-            )
-            system_stats['scans_detected'] += 1
-            
-            # Reset tracker after alert
-            tracker['ports'].clear()
-            tracker['first_seen'] = now
-
-def detect_stealth_scan(src_ip: str, dst_port: int):
-    """Detect slow stealth scans over longer time window."""
-    with stealth_tracker_lock:
-        tracker = stealth_tracker[src_ip]
-        now = time.time()
-
-        tracker["ports"].add(dst_port)
-        tracker["timestamps"].append(now)
-
-        # Remove timestamps outside window
-        tracker["timestamps"] = [
-            t for t in tracker["timestamps"]
-            if now - t < STEALTH_SCAN_WINDOW
-        ]
-
-        if len(tracker["ports"]) >= STEALTH_SCAN_THRESHOLD:
-            generate_alert(
-                alert_type="Stealth Port Scan",
-                severity="medium",
-                src=src_ip,
-                dst=None,
-                protocol="TCP",
-                message=f"Stealth scan detected: {len(tracker['ports'])} ports over {STEALTH_SCAN_WINDOW}s",
-                details={
-                    "ports_scanned": len(tracker["ports"]),
-                    "window": STEALTH_SCAN_WINDOW
-                }
-            )
-
-            tracker["ports"].clear()
-            tracker["timestamps"].clear()
-
-def detect_ddos(src_ip: str):
-    """Detect high packet rate (possible DDoS or flood)."""
-    with ddos_tracker_lock:
-        tracker = ddos_tracker[src_ip]
-        now = time.time()
-
-        tracker["timestamps"].append(now)
-
-        tracker["timestamps"] = [
-            t for t in tracker["timestamps"]
-            if now - t < DDOS_WINDOW
-        ]
-
-        if len(tracker["timestamps"]) >= DDOS_PACKET_RATE_THRESHOLD:
-            generate_alert(
-                alert_type="DDoS / Flood Detected",
-                severity="critical",
-                src=src_ip,
-                dst=None,
-                protocol="Multiple",
-                message=f"High packet rate detected: {len(tracker['timestamps'])} packets in {DDOS_WINDOW}s",
-                details={
-                    "packet_rate": len(tracker["timestamps"]),
-                    "window": DDOS_WINDOW
-                }
-            )
-
-            tracker["timestamps"].clear()
-
-# ═══════════════════════════════════════════════════════════════
-# FEATURE EXTRACTION FOR ML
-# ═══════════════════════════════════════════════════════════════
-
-def extract_features_from_packet(packet) -> Optional[Dict]:
-    """
-    Extract features from a packet for ML inference.
-    Returns feature dict or None if packet is incomplete.
-    """
-    if not packet.haslayer(IP):
-        return None
-    
-    ip_layer = packet[IP]
-    
-    features = {
-        'protocol_type': 'tcp' if packet.haslayer(TCP) else
-                        'udp' if packet.haslayer(UDP) else
-                        'icmp' if packet.haslayer(ICMP) else 'other',
-        'src_bytes': len(packet),
-        'dst_bytes': 0,  # Would need flow tracking
-        'flag': 'S' if packet.haslayer(TCP) and packet[TCP].flags == 'S' else 'SF',
-        'duration': 0,  # Would need flow tracking
+    details: Optional[Dict] = None,
+    _from_correlation: bool = False,
+) -> Dict:
+    alert_id = _new_alert_id()
+    alert = {
+        "id":        alert_id,
+        "type":      alert_type,
+        "severity":  severity,
+        "src":       src,
+        "dst":       dst,
+        "protocol":  protocol,
+        "message":   message,
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "details":   details or {},
     }
-    
-    return features
 
-def build_feature_vector(features: Dict) -> Optional[np.ndarray]:
-    """
-    Build feature vector compatible with Random Forest model.
-    Uses encoder to transform categorical features.
-    """
-    if not model_loaded:
-        return None
-    
-    try:
-        # Example feature vector structure
-        # Adjust based on your actual model's expected features
-        feature_list = [
-            features.get('protocol_type', 'tcp'),
-            features.get('flag', 'SF'),
-            features.get('src_bytes', 0),
-            features.get('dst_bytes', 0),
-            features.get('duration', 0)
-        ]
-        
-        # Transform using encoder (adjust indices based on your encoder)
-        # This is a simplified example - adjust to your actual feature set
-        categorical_features = [feature_list[0], feature_list[1]]
-        encoded = ml_encoder.transform([categorical_features])
-        
-        # Combine with numerical features
-        numerical = [feature_list[2], feature_list[3], feature_list[4]]
-        feature_vector = np.concatenate([encoded[0], numerical]).reshape(1, -1)
-        
-        return feature_vector
-    
-    except Exception as e:
-        print(f"⚠ Feature extraction error: {e}")
-        return None
+    with alerts_lock:
+        alerts.append(alert)
 
-# ═══════════════════════════════════════════════════════════════
-# ML-BASED DETECTION
-# ═══════════════════════════════════════════════════════════════
+    print(f"[{severity.upper():8s}] {alert_type} → {message}")
 
-def ml_detect(src_ip: str, dst_ip: str, protocol: str, features: Dict):
-    """
-    Run ML inference on extracted features.
-    Generate alert if malicious prediction.
-    """
-    if not model_loaded:
-        return
-    
-    feature_vector = build_feature_vector(features)
-    if feature_vector is None:
-        return
-    
-    try:
-        prediction = ml_model.predict(feature_vector)[0]
-        
-        # Assuming binary: 0 = normal, 1 = malicious
-        if prediction == 1:
-            # Get probability if available
-            try:
-                proba = ml_model.predict_proba(feature_vector)[0]
-                confidence = max(proba) * 100
-            except:
-                confidence = 0.0
-            
+    if not _from_correlation and src:
+        with correlation_lock:
+            correlation_tracker[src]["events"].append(alert_type)
+        correlate_events(src)
+
+    return alert
+
+# ─────────────────────────────────────────────
+#  CORRELATION ENGINE
+# ─────────────────────────────────────────────
+# Map of (frozenset of event types) → (alert type, message template)
+CORRELATION_RULES: List[tuple] = [
+    (
+        {"Port Scan", "Brute Force Attempt"},
+        "Attack Chain",
+        "critical",
+        "Port Scan followed by Brute Force",
+    ),
+    (
+        {"Port Scan", "SYN Flood"},
+        "Coordinated Attack",
+        "critical",
+        "Port Scan combined with SYN Flood",
+    ),
+    (
+        {"DDoS", "SYN Flood"},
+        "Volumetric Attack",
+        "critical",
+        "DDoS combined with SYN Flood",
+    ),
+    (
+        {"ML Anomaly", "Port Scan"},
+        "Recon + Anomaly",
+        "critical",
+        "ML anomaly combined with Port Scan",
+    ),
+]
+
+def correlate_events(src: str):
+    with correlation_lock:
+        events = list(correlation_tracker[src]["events"])
+
+    unique = set(events)
+
+    # Check specific rules first
+    for required_events, alert_type, severity, description in CORRELATION_RULES:
+        if required_events.issubset(unique):
             generate_alert(
-                alert_type='ML Detection',
-                severity='medium',
-                src=src_ip,
-                dst=dst_ip,
-                protocol=protocol.upper(),
-                message=f'Malicious traffic detected by ML model',
-                details={
-                    'prediction': 'malicious',
-                    'confidence': f'{confidence:.1f}%',
-                    'features': features
-                }
+                alert_type, severity, src, None, "Multiple",
+                f"{alert_type} from {src}: {description}",
+                {"events": list(unique)},
+                _from_correlation=True,
             )
-            system_stats['ml_detections'] += 1
-    
-    except Exception as e:
-        print(f"⚠ ML inference error: {e}")
+            with correlation_lock:
+                correlation_tracker[src]["events"].clear()
+            return
 
-# ═══════════════════════════════════════════════════════════════
-# PACKET PROCESSING CALLBACK
-# ═══════════════════════════════════════════════════════════════
+    # Generic multi-vector rule
+    if len(unique) >= 3:
+        generate_alert(
+            "Multi-Vector Attack", "critical", src, None, "Multiple",
+            f"Multi-vector attack from {src}: {', '.join(unique)}",
+            {"events": list(unique)},
+            _from_correlation=True,
+        )
+        with correlation_lock:
+            correlation_tracker[src]["events"].clear()
+        return
 
+    # Flush oversized event list to prevent memory growth
+    if len(events) > CORRELATION_EVENT_LIMIT:
+        with correlation_lock:
+            correlation_tracker[src]["events"].clear()
+
+# ─────────────────────────────────────────────
+#  SIGNATURE DETECTION
+# ─────────────────────────────────────────────
+# Maps exact flag values → scan name
+TCP_SIGNATURES = {
+    0x00: "NULL Scan",
+    0x01: "FIN Scan",
+    0x03: "FIN+SYN Scan",
+    0x02: "SYN Scan",
+}
+
+def check_tcp_signature(flags: int) -> Optional[str]:
+    """Return a scan name for known malicious TCP flag combinations."""
+    if flags in TCP_SIGNATURES:
+        return TCP_SIGNATURES[flags]
+    if flags & 0x29 == 0x29:   # FIN + PSH + URG
+        return "XMAS Scan"
+    return None
+
+# ─────────────────────────────────────────────
+#  DETECTION MODULES
+# ─────────────────────────────────────────────
+def detect_port_scan(src: str, dst: str, port: int):
+    t = scan_tracker[src]
+    now = time.time()
+
+    if t["first_seen"] is None:
+        t["first_seen"] = now
+
+    # Reset window if expired
+    if now - t["first_seen"] > PORT_SCAN_WINDOW:
+        t["ports"].clear()
+        t["first_seen"] = now
+        return
+
+    t["ports"].add(port)
+
+    if len(t["ports"]) > PORT_SCAN_THRESHOLD:
+        generate_alert(
+            "Port Scan", "high", src, dst, "TCP",
+            f"Port scan: {src} → {dst}, {len(t['ports'])} ports in {PORT_SCAN_WINDOW}s",
+            {"ports_scanned": len(t["ports"])},
+        )
+        t["ports"].clear()
+        t["first_seen"] = now
+
+
+def detect_stealth_scan(src: str, port: int):
+    """Detects slow/low-and-slow scans that evade the fast port-scan check."""
+    t = stealth_tracker[src]
+    now = time.time()
+
+    t["ports"].add(port)
+    t["timestamps"] = [ts for ts in t["timestamps"] if now - ts < STEALTH_SCAN_WINDOW]
+    t["timestamps"].append(now)
+
+    if len(t["ports"]) >= STEALTH_SCAN_THRESHOLD:
+        generate_alert(
+            "Stealth Scan", "medium", src, None, "TCP",
+            f"Stealth scan: {src} probed {len(t['ports'])} ports over {STEALTH_SCAN_WINDOW}s",
+            {"ports_scanned": len(t["ports"])},
+        )
+        t["ports"].clear()
+        t["timestamps"].clear()
+
+
+def detect_ddos(src: str, dst: str):
+    t = ddos_tracker[src]
+    now = time.time()
+
+    t["timestamps"] = [ts for ts in t["timestamps"] if now - ts < DDOS_WINDOW]
+    t["timestamps"].append(now)
+
+    if len(t["timestamps"]) > DDOS_PACKET_THRESHOLD:
+        generate_alert(
+            "DDoS", "critical", src, dst, "Multiple",
+            f"DDoS: {src} → {dst}, {len(t['timestamps'])} pkts in {DDOS_WINDOW}s",
+            {"packet_count": len(t["timestamps"])},
+        )
+        t["timestamps"].clear()
+
+
+def detect_syn_flood(src: str, dst: str):
+    t = syn_tracker[src]
+    t["syn"] += 1
+
+    if t["syn"] > SYN_FLOOD_THRESHOLD:
+        ratio = t["syn"] / max(t["ack"], 1)
+        if ratio > SYN_ACK_RATIO_LIMIT:
+            generate_alert(
+                "SYN Flood", "critical", src, dst, "TCP",
+                f"SYN flood: {src} → {dst}, {t['syn']} SYNs, ratio={ratio:.1f}",
+                {"syn_count": t["syn"], "ack_count": t["ack"], "ratio": round(ratio, 2)},
+            )
+            t["syn"] = 0
+            t["ack"] = 0
+
+
+def detect_brute_force(src: str, dst: str, port: int):
+    if port not in BRUTE_FORCE_PORTS:
+        return
+
+    t = bruteforce_tracker[src]
+    now = time.time()
+
+    t["timestamps"] = [ts for ts in t["timestamps"] if now - ts < BRUTE_FORCE_WINDOW]
+    t["timestamps"].append(now)
+    t["attempts"] = len(t["timestamps"])   # attempts = events in window
+
+    if t["attempts"] >= BRUTE_FORCE_THRESHOLD:
+        generate_alert(
+            "Brute Force Attempt", "high", src, dst, "TCP",
+            f"Brute force: {src} → {dst}:{port}, {t['attempts']} attempts in {BRUTE_FORCE_WINDOW}s",
+            {"port": port, "attempt_count": t["attempts"]},
+        )
+        t["attempts"] = 0
+        t["timestamps"].clear()
+
+
+def detect_udp_amplification(src: str, dst: str, dst_port: int, pkt_len: int):
+    if dst_port not in UDP_AMP_PORTS:
+        return
+
+    t = udp_amp_tracker[src]
+    now = time.time()
+
+    t["timestamps"] = [ts for ts in t["timestamps"] if now - ts < UDP_AMP_WINDOW]
+    t["timestamps"].append(now)
+
+    if len(t["timestamps"]) > UDP_AMP_THRESHOLD:
+        generate_alert(
+            "UDP Amplification", "high", src, dst, "UDP",
+            f"UDP amp: {src} → {dst}:{dst_port}, {len(t['timestamps'])} reqs in {UDP_AMP_WINDOW}s",
+            {"dst_port": dst_port, "request_count": len(t["timestamps"]), "pkt_size": pkt_len},
+        )
+        t["timestamps"].clear()
+
+# ─────────────────────────────────────────────
+#  PACKET PROCESSOR
+# ─────────────────────────────────────────────
 def process_packet(packet):
-    """
-    Main packet processing callback.
-    Called by Scapy for every captured packet.
-    """
-    system_stats['packets_captured'] += 1
-    
-    # Only process IP packets
+    system_stats["packets_captured"] += 1
+
     if not packet.haslayer(IP):
         return
-    
-    ip_layer = packet[IP]
-    src_ip = ip_layer.src
-    dst_ip = ip_layer.dst
-    # DDoS detection  
-    detect_ddos(src_ip)
-    
-    # ─── TCP Processing ───────────────────────────────────────
+
+    src = packet[IP].src
+    dst = packet[IP].dst
+
+    # DDoS check runs on every IP packet
+    detect_ddos(src, dst)
+
     if packet.haslayer(TCP):
-        tcp_layer = packet[TCP]
-        dst_port = tcp_layer.dport
-        
-        # Port scan detection (SYN packets only)
-        if tcp_layer.flags & 0x02:  # SYN flag
-            detect_port_scan(src_ip, dst_ip, dst_port) 
-            detect_stealth_scan(src_ip, dst_port)
+        tcp   = packet[TCP]
+        flags = int(tcp.flags)
+        dport = tcp.dport
 
-        
-        # ML detection
-        features = extract_features_from_packet(packet)
-        if features:
-            ml_detect(src_ip, dst_ip, 'tcp', features)
-    
-    # ─── UDP Processing ───────────────────────────────────────
+        # Signature detection
+        sig = check_tcp_signature(flags)
+        if sig:
+            generate_alert(
+                "TCP Signature", "low", src, dst, "TCP",
+                f"TCP signature '{sig}' from {src} → {dst}:{dport}",
+                {"signature": sig, "flags": flags, "dst_port": dport},
+            )
+
+        if flags & 0x02:  # SYN
+            detect_port_scan(src, dst, dport)
+            detect_stealth_scan(src, dport)
+            detect_syn_flood(src, dst)
+
+        if flags & 0x10:  # ACK
+            syn_tracker[src]["ack"] += 1
+
+        detect_brute_force(src, dst, dport)
+
     elif packet.haslayer(UDP):
-        features = extract_features_from_packet(packet)
-        if features:
-            ml_detect(src_ip, dst_ip, 'udp', features)
-    
-    # ─── ICMP Processing ──────────────────────────────────────
-    elif packet.haslayer(ICMP):
-        features = extract_features_from_packet(packet)
-        if features:
-            ml_detect(src_ip, dst_ip, 'icmp', features)
+        udp = packet[UDP]
+        detect_udp_amplification(src, dst, udp.dport, len(packet))
 
-# ═══════════════════════════════════════════════════════════════
-# PACKET SNIFFER (Background Thread)
-# ═══════════════════════════════════════════════════════════════
+    # ICMP: currently just counted via DDoS tracker above
+    # Extend here if you want ICMP-specific detection (ping flood, smurf, etc.)
 
-def start_packet_capture():
-    """
-    Start packet capture in background thread.
-    Runs indefinitely until stopped.
-    """
-    global sniffer_running
-    
-    if not SCAPY_AVAILABLE:
-        print("✗ Scapy not available. Cannot start packet capture.")
-        return
-    
-    print(f"🔍 Starting packet capture on interface: {NETWORK_INTERFACE}")
-    print(f"   Port scan threshold: {PORT_SCAN_THRESHOLD} ports in {PORT_SCAN_WINDOW}s")
-    print(f"   ML detection: {'enabled' if model_loaded else 'disabled'}")
-    print()
-    
-    sniffer_running = True
-    
-    try:
-        # Start sniffing (blocking call)
-        sniff(
-            iface=NETWORK_INTERFACE,
-            prn=process_packet,
-            store=False,           # Don't store packets in memory
-            stop_filter=lambda x: not sniffer_running  # Stop condition
-        )
-    except PermissionError:
-        print("✗ Permission denied. Run with sudo:")
-        print("  sudo uvicorn main:app --host 0.0.0.0 --port 8000")
-        sniffer_running = False
-    except Exception as e:
-        print(f"✗ Packet capture error: {e}")
-        sniffer_running = False
+# ─────────────────────────────────────────────
+#  SNIFFER THREAD
+# ─────────────────────────────────────────────
+def _sniffer_worker():
+    print(f"[SNIFFER] Capturing on interface: {NETWORK_INTERFACE}")
+    sniff(
+        iface=NETWORK_INTERFACE,
+        prn=process_packet,
+        store=False,
+        stop_filter=lambda _: sniffer_stop_event.is_set(),
+    )
+    print("[SNIFFER] Stopped.")
 
-def stop_packet_capture():
-    """Stop packet capture gracefully."""
-    global sniffer_running
-    sniffer_running = False
-    print("⏹ Packet capture stopped")
-
-# ═══════════════════════════════════════════════════════════════
-# FASTAPI APPLICATION
-# ═══════════════════════════════════════════════════════════════
-
+# ─────────────────────────────────────────────
+#  FASTAPI APPLICATION
+# ─────────────────────────────────────────────
 app = FastAPI(
-    title="Real-Time NIDS API",
-    description="Network Intrusion Detection System with Live Packet Capture",
-    version="2.0.0"
+    title="NIDS API",
+    description="Real-Time Network Intrusion Detection System — Rule-Based Engine",
+    version="3.0.0",
 )
 
-# CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ═══════════════════════════════════════════════════════════════
-# STARTUP & SHUTDOWN EVENTS
-# ═══════════════════════════════════════════════════════════════
 
-@app.on_event("startup")
-async def startup_event():
-    """
-    Startup tasks:
-    1. Load ML models
-    2. Start packet capture in background thread
-    """
-    global sniffer_thread
-    
-    print("="*70)
-    print("🔐 REAL-TIME NETWORK INTRUSION DETECTION SYSTEM")
-    print("="*70)
-    
-    # Load ML models
-    load_ml_models()
-    
-    # Start packet sniffer in background thread
-    if SCAPY_AVAILABLE:
-        sniffer_thread = threading.Thread(
-            target=start_packet_capture,
-            daemon=True,
-            name="PacketSniffer"
-        )
-        sniffer_thread.start()
-        print("✓ Packet capture thread started")
-    else:
-        print("⚠ Packet capture disabled (Scapy not available)")
-    
-    print("="*70)
-    print()
+class ExternalAlert(BaseModel):
+    src: str
+    dst: Optional[str] = None
+    proto: Optional[str] = "unknown"
+    message: Optional[str] = "Suspicious activity"
+    severity: Optional[str] = "high"
+    alert_type: Optional[str] = "ML Anomaly"
+    details: Optional[Dict] = {}
 
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Graceful shutdown."""
-    print("\n🛑 Shutting down NIDS...")
-    stop_packet_capture()
-    if sniffer_thread:
-        sniffer_thread.join(timeout=5)
-    print("✓ Shutdown complete")
 
-# ═══════════════════════════════════════════════════════════════
-# API ENDPOINTS
-# ═══════════════════════════════════════════════════════════════
+# ── Endpoints ────────────────────────────────
 
-@app.get("/")
-async def root():
-    """Welcome endpoint."""
+@app.get("/health", tags=["System"])
+def health():
     return {
-        "message": "Real-Time NIDS API",
-        "version": "2.0.0",
-        "status": "online",
-        "docs": "/docs"
+        "status":       "ok",
+        "scapy":        SCAPY_AVAILABLE,
+        "timestamp":    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
 
-@app.get("/status", response_model=SystemStatus)
-async def get_status():
-    """Get system status and statistics."""
-    uptime = (datetime.now() - system_stats['start_time']).total_seconds()
-    
-    return SystemStatus(
-        sniffer_running=sniffer_running,
-        model_loaded=model_loaded,
-        interface=NETWORK_INTERFACE,
-        packets_captured=system_stats['packets_captured'],
-        alerts_generated=system_stats['alerts_generated'],
-        scans_detected=system_stats['scans_detected'],
-        ml_detections=system_stats['ml_detections'],
-        uptime_seconds=round(uptime, 1)
-    )
 
-@app.get("/alerts")
-async def get_alerts(limit: int = 50):
-    """
-    Get recent alerts.
-    
-    Args:
-        limit: Maximum number of alerts to return (default: 50)
-    
-    Returns:
-        List of alerts in reverse chronological order
-    """
-    with alerts_lock:
-        alerts_list = list(alerts)
-    
+@app.get("/status", tags=["System"])
+def status():
+    uptime = None
+    if system_stats["start_time"]:
+        uptime = round(time.time() - system_stats["start_time"], 1)
     return {
-        "total_alerts": len(alerts_list),
-        "alerts": alerts_list[:limit]
+        "running":          system_stats["running"],
+        "packets_captured": system_stats["packets_captured"],
+        "alerts_generated": system_stats["alerts_generated"],
+        "alerts_stored":    len(alerts),
+        "uptime_seconds":   uptime,
+        "interface":        NETWORK_INTERFACE,
     }
 
-@app.delete("/alerts")
-async def clear_alerts():
-    """Clear all alerts from memory."""
+
+@app.get("/alerts", tags=["Alerts"])
+def get_alerts(
+    limit:    int = Query(50,   ge=1, le=MAX_ALERTS_STORED),
+    severity: Optional[str] = Query(None, description="Filter by severity: low/medium/high/critical"),
+    alert_type: Optional[str] = Query(None, description="Filter by alert type"),
+):
     with alerts_lock:
+        result = list(alerts)
+
+    if severity:
+        result = [a for a in result if a["severity"].lower() == severity.lower()]
+    if alert_type:
+        result = [a for a in result if a["type"].lower() == alert_type.lower()]
+
+    return result[-limit:]
+
+
+@app.delete("/alerts", tags=["Alerts"])
+def clear_alerts():
+    """Clear all stored alerts. Called by the dashboard 'Clear Alerts' button."""
+    with alerts_lock:
+        count = len(alerts)
         alerts.clear()
-    
-    return {
-        "message": "Alerts cleared",
-        "timestamp": datetime.now().isoformat()
-    }
+        system_stats["alerts_generated"] = 0
+    with correlation_lock:
+        correlation_tracker.clear()
+    print(f"[NIDS] Cleared {count} alerts.")
+    return {"status": "ok", "cleared": count}
 
-@app.get("/health")
-async def health_check():
-    """Health check endpoint."""
-    return {
-        "status": "healthy",
-        "timestamp": datetime.now().isoformat(),
-        "sniffer_running": sniffer_running,
-        "model_loaded": model_loaded
-    }
 
-@app.post("/control/start")
-async def start_capture():
-    """Manually start packet capture (if stopped)."""
-    global sniffer_thread, sniffer_running
-    
-    if sniffer_running:
-        return {"message": "Sniffer already running"}
-    
-    if not SCAPY_AVAILABLE:
-        raise HTTPException(
-            status_code=503,
-            detail="Scapy not installed. Cannot start capture."
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
+def serve_dashboard():
+    """
+    Serve the NIDS dashboard HTML directly from the API server.
+    This avoids browser CORS blocks that happen when opening the file via file://.
+    Place nids_dashboard.html next to main.py, then open http://127.0.0.1:8000
+    """
+    dashboard = Path("nids_dashboard.html")
+    if not dashboard.exists():
+        return HTMLResponse(
+            content="""
+            <html><body style='font-family:monospace;background:#0c1118;color:#64748b;padding:40px'>
+            <h2 style='color:#ef4444'>Dashboard Not Found</h2>
+            <p>Place <code>nids_dashboard.html</code> in the same directory as <code>main.py</code></p>
+            <p>Then refresh this page.</p>
+            </body></html>
+            """,
+            status_code=404,
         )
-    
-    sniffer_thread = threading.Thread(
-        target=start_packet_capture,
-        daemon=True,
-        name="PacketSniffer"
+    return HTMLResponse(content=dashboard.read_text(encoding="utf-8"))
+
+
+@app.post("/alert", tags=["Alerts"])
+def receive_external_alert(payload: ExternalAlert):
+    """
+    Accepts alerts from external sensors (e.g. live_ids_v2.py ML sensor).
+    Feeds them into the same alert store and correlation engine.
+    """
+    alert = generate_alert(
+        alert_type=payload.alert_type,
+        severity=payload.severity,
+        src=payload.src,
+        dst=payload.dst,
+        protocol=payload.proto,
+        message=payload.message,
+        details=payload.details,
     )
+    return {"status": "ok", "alert_id": alert["id"]}
+
+
+@app.post("/control/start", tags=["Control"])
+def control_start():
+    global sniffer_thread
+
+    if system_stats["running"]:
+        raise HTTPException(400, "Sniffer already running.")
+    if not SCAPY_AVAILABLE:
+        raise HTTPException(503, "Scapy not installed. Cannot capture packets.")
+
+    sniffer_stop_event.clear()
+    sniffer_thread = threading.Thread(target=_sniffer_worker, daemon=True)
     sniffer_thread.start()
-    
-    return {
-        "message": "Packet capture started",
-        "interface": NETWORK_INTERFACE
-    }
+    system_stats["running"]    = True
+    system_stats["start_time"] = time.time()
 
-@app.post("/control/stop")
-async def stop_capture():
-    """Manually stop packet capture."""
-    if not sniffer_running:
-        return {"message": "Sniffer not running"}
-    
-    stop_packet_capture()
-    
-    return {
-        "message": "Packet capture stopped"
-    }
+    return {"status": "started", "interface": NETWORK_INTERFACE}
 
-# ═══════════════════════════════════════════════════════════════
-# MAIN ENTRY POINT
-# ═══════════════════════════════════════════════════════════════
 
+@app.post("/control/stop", tags=["Control"])
+def control_stop():
+    if not system_stats["running"]:
+        raise HTTPException(400, "Sniffer is not running.")
+
+    sniffer_stop_event.set()
+    system_stats["running"] = False
+
+    return {"status": "stopped"}
+
+
+# ─────────────────────────────────────────────
+#  STARTUP
+# ─────────────────────────────────────────────
+@app.on_event("startup")
+def on_startup():
+    print("[NIDS] main.py ready. POST /control/start to begin capture.")
+    print("[NIDS] ML alerts expected from live_ids_v2.py via POST /alert")
+
+
+# ─────────────────────────────────────────────
+#  ENTRY POINT
+# ─────────────────────────────────────────────
 if __name__ == "__main__":
     import uvicorn
-    
-    print("⚠ WARNING: Run with sudo for packet capture:")
-    print("  sudo uvicorn main:app --host 0.0.0.0 --port 8000")
-    print()
-    
-    uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=False  # Disable reload for production
-    )
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=False)
