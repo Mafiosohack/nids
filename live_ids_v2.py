@@ -48,6 +48,9 @@ ENCODER_PATH        = "models/rf_encoder_v2.pkl"
 NIDS_ALERT_URL      = "http://127.0.0.1:8000/alert"
 ALERT_TIMEOUT_SEC   = 2         # HTTP POST timeout
 
+# Must match SENSOR_API_KEY in main.py
+SENSOR_API_KEY      = "sensor-key-change-me-in-production"
+
 FLOW_MIN_PACKETS    = 5         # minimum packets before running inference
 FLOW_MAX_AGE_SEC    = 120       # expire flows older than this (prevents memory leak)
 FLOW_CLEANUP_INTERVAL = 30      # how often the cleanup thread runs
@@ -365,7 +368,12 @@ def send_alert(flow: Flow, label: str):
     }
     print(f"[ALERT] Sending to NIDS: {payload['message']}")
     try:
-        resp = requests.post(NIDS_ALERT_URL, json=payload, timeout=ALERT_TIMEOUT_SEC)
+        resp = requests.post(
+            NIDS_ALERT_URL,
+            json=payload,
+            timeout=ALERT_TIMEOUT_SEC,
+            headers={"X-Sensor-Key": SENSOR_API_KEY},
+        )
         if resp.status_code == 200:
             print(f"[ALERT] ✓ Accepted by NIDS (id={resp.json().get('alert_id')})")
         else:

@@ -13,17 +13,23 @@ ML detection is intentionally NOT done here.
 live_ids_v2.py handles flow-based ML and forwards alerts to /alert.
 """
 
+import hashlib
+import hmac
+import secrets
+import sqlite3
 import threading
 import time
 from collections import defaultdict, deque
-from datetime import datetime
+from contextlib import contextmanager
+from datetime import datetime, timedelta
 from typing import Deque, Dict, List, Optional
 
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
 try:
@@ -61,6 +67,161 @@ UDP_AMP_WINDOW          = 10     # seconds
 
 MAX_ALERTS_STORED       = 500
 CORRELATION_EVENT_LIMIT = 15
+
+# ─────────────────────────────────────────────
+#  AUTH CONFIG
+# ─────────────────────────────────────────────
+# Sensor pre-shared key — must match SENSOR_API_KEY in live_ids_v2.py
+SENSOR_API_KEY = "sensor-key-change-me-in-production"
+
+# Session token expiry (hours)
+TOKEN_EXPIRY_HOURS = 8
+
+# SQLite database path
+DB_PATH = Path("nids_users.db")
+
+# ─────────────────────────────────────────────
+#  ROLES AND PERMISSIONS
+# ─────────────────────────────────────────────
+# Three roles — each is a frozenset of allowed actions.
+ROLES = {
+    "admin": frozenset([
+        "view_alerts",
+        "export_alerts",
+        "delete_alerts",
+        "control_sniffer",
+        "manage_users",
+    ]),
+    "analyst": frozenset([
+        "view_alerts",
+        "export_alerts",
+    ]),
+    "viewer": frozenset([
+        "view_alerts",
+    ]),
+}
+
+# ─────────────────────────────────────────────
+#  DATABASE  (SQLite — persistent across restarts)
+# ─────────────────────────────────────────────
+db_lock = threading.Lock()
+
+@contextmanager
+def get_db():
+    """Thread-safe SQLite connection context manager."""
+    with db_lock:
+        conn = sqlite3.connect(str(DB_PATH))
+        conn.row_factory = sqlite3.Row
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+
+def init_db():
+    """
+    Create tables and seed a default admin account if the DB is new.
+    Safe to call on every startup — uses CREATE IF NOT EXISTS.
+    """
+    with get_db() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                username   TEXT UNIQUE NOT NULL,
+                password   TEXT NOT NULL,
+                role       TEXT NOT NULL DEFAULT 'viewer',
+                created_at TEXT NOT NULL,
+                last_login TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS sessions (
+                token      TEXT PRIMARY KEY,
+                username   TEXT NOT NULL,
+                role       TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_sessions_token
+            ON sessions(token)
+        """)
+
+        # Seed default admin only if no users exist yet
+        count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        if count == 0:
+            conn.execute(
+                "INSERT INTO users (username, password, role, created_at) VALUES (?,?,?,?)",
+                (
+                    "admin",
+                    _hash_password("nids@admin123"),
+                    "admin",
+                    datetime.now().isoformat(),
+                ),
+            )
+            print("[AUTH] Default admin created. Username: admin | Password: nids@admin123")
+            print("[AUTH] Change the password immediately via POST /auth/change-password")
+
+
+def _hash_password(password: str) -> str:
+    """SHA-256 hash of password. Simple but sufficient for a PoC."""
+    return hashlib.sha256(password.encode()).hexdigest()
+
+
+def db_get_user(username: str) -> Optional[sqlite3.Row]:
+    with get_db() as conn:
+        return conn.execute(
+            "SELECT * FROM users WHERE username = ?", (username,)
+        ).fetchone()
+
+
+def db_create_session(username: str, role: str) -> str:
+    token = secrets.token_hex(32)
+    expires = (datetime.now() + timedelta(hours=TOKEN_EXPIRY_HOURS)).isoformat()
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO sessions (token, username, role, expires_at, created_at) VALUES (?,?,?,?,?)",
+            (token, username, role, expires, datetime.now().isoformat()),
+        )
+        # Update last_login
+        conn.execute(
+            "UPDATE users SET last_login = ? WHERE username = ?",
+            (datetime.now().isoformat(), username),
+        )
+    return token
+
+
+def db_get_session(token: str) -> Optional[sqlite3.Row]:
+    with get_db() as conn:
+        return conn.execute(
+            "SELECT * FROM sessions WHERE token = ?", (token,)
+        ).fetchone()
+
+
+def db_revoke_session(token: str):
+    with get_db() as conn:
+        conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
+
+
+def db_purge_expired_sessions():
+    with get_db() as conn:
+        conn.execute(
+            "DELETE FROM sessions WHERE expires_at < ?",
+            (datetime.now().isoformat(),),
+        )
+
+
+def db_list_users() -> list:
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT id, username, role, created_at, last_login FROM users ORDER BY id"
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 # ─────────────────────────────────────────────
 #  GLOBAL STATE
@@ -398,6 +559,79 @@ def _sniffer_worker():
     print("[SNIFFER] Stopped.")
 
 # ─────────────────────────────────────────────
+#  AUTH HELPERS
+# ─────────────────────────────────────────────
+bearer_scheme = HTTPBearer(auto_error=False)
+
+
+def _get_validated_session(token: str) -> Optional[dict]:
+    """Return session dict if token exists and is not expired, else None."""
+    db_purge_expired_sessions()
+    row = db_get_session(token)
+    if row is None:
+        return None
+    if datetime.fromisoformat(row["expires_at"]) < datetime.now():
+        db_revoke_session(token)
+        return None
+    return dict(row)
+
+
+def require_auth(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+) -> dict:
+    """
+    Validates bearer token. Returns session dict with keys:
+      username, role, expires_at
+    Raises 401 if missing / invalid / expired.
+    """
+    if credentials is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    session = _get_validated_session(credentials.credentials)
+    if session is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired token. Please log in again.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return session
+
+
+def require_permission(permission: str):
+    """
+    Returns a FastAPI dependency that checks the session has a specific permission.
+    Usage:  user = Depends(require_permission("delete_alerts"))
+    """
+    def _check(session: dict = Depends(require_auth)) -> dict:
+        role = session.get("role", "viewer")
+        if permission not in ROLES.get(role, frozenset()):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Role '{role}' does not have permission: {permission}",
+            )
+        return session
+    return _check
+
+
+def require_sensor(request: Request):
+    """
+    POST /alert only — accepts the sensor pre-shared key.
+    Intentionally does NOT accept user tokens to keep sensor
+    access completely separate from human access.
+    """
+    sensor_key = request.headers.get("X-Sensor-Key", "")
+    if hmac.compare_digest(sensor_key, SENSOR_API_KEY):
+        return "sensor"
+    raise HTTPException(
+        status_code=401,
+        detail="Valid X-Sensor-Key header required.",
+    )
+
+
+# ─────────────────────────────────────────────
 #  FASTAPI APPLICATION
 # ─────────────────────────────────────────────
 app = FastAPI(
@@ -414,6 +648,22 @@ app.add_middleware(
 )
 
 
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+class CreateUserRequest(BaseModel):
+    username: str
+    password: str
+    role: str = "viewer"
+
+class UpdateRoleRequest(BaseModel):
+    role: str
+
 class ExternalAlert(BaseModel):
     src: str
     dst: Optional[str] = None
@@ -424,19 +674,141 @@ class ExternalAlert(BaseModel):
     details: Optional[Dict] = {}
 
 
-# ── Endpoints ────────────────────────────────
+# ── Auth Endpoints ────────────────────────────
+
+@app.post("/auth/login", tags=["Auth"])
+def login(payload: LoginRequest):
+    """Exchange username + password for a bearer token."""
+    user = db_get_user(payload.username)
+    if user is None or not hmac.compare_digest(
+        user["password"], _hash_password(payload.password)
+    ):
+        raise HTTPException(status_code=401, detail="Invalid username or password.")
+
+    token = db_create_session(payload.username, user["role"])
+    print(f"[AUTH] Login: {payload.username} (role={user['role']})")
+    return {
+        "token":      token,
+        "username":   payload.username,
+        "role":       user["role"],
+        "expires_in": TOKEN_EXPIRY_HOURS * 3600,
+    }
+
+
+@app.post("/auth/logout", tags=["Auth"])
+def logout(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    session: dict = Depends(require_auth),
+):
+    db_revoke_session(credentials.credentials)
+    print(f"[AUTH] Logout: {session['username']}")
+    return {"status": "logged out"}
+
+
+@app.post("/auth/change-password", tags=["Auth"])
+def change_password(
+    payload: ChangePasswordRequest,
+    session: dict = Depends(require_auth),
+):
+    """Any logged-in user can change their own password."""
+    user = db_get_user(session["username"])
+    if not hmac.compare_digest(user["password"], _hash_password(payload.current_password)):
+        raise HTTPException(status_code=401, detail="Current password is incorrect.")
+    if len(payload.new_password) < 8:
+        raise HTTPException(status_code=400, detail="New password must be at least 8 characters.")
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE users SET password = ? WHERE username = ?",
+            (_hash_password(payload.new_password), session["username"]),
+        )
+    print(f"[AUTH] Password changed: {session['username']}")
+    return {"status": "ok"}
+
+
+# ── User Management (admin only) ──────────────
+
+@app.get("/users", tags=["User Management"])
+def list_users(session: dict = Depends(require_permission("manage_users"))):
+    """List all users. Admin only."""
+    return db_list_users()
+
+
+@app.post("/users", tags=["User Management"])
+def create_user(
+    payload: CreateUserRequest,
+    session: dict = Depends(require_permission("manage_users")),
+):
+    """Create a new user. Admin only."""
+    if payload.role not in ROLES:
+        raise HTTPException(400, f"Invalid role. Must be one of: {list(ROLES.keys())}")
+    if len(payload.password) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters.")
+    if db_get_user(payload.username):
+        raise HTTPException(409, f"Username '{payload.username}' already exists.")
+
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO users (username, password, role, created_at) VALUES (?,?,?,?)",
+            (payload.username, _hash_password(payload.password),
+             payload.role, datetime.now().isoformat()),
+        )
+    print(f"[AUTH] User created: {payload.username} (role={payload.role}) by {session['username']}")
+    return {"status": "ok", "username": payload.username, "role": payload.role}
+
+
+@app.delete("/users/{username}", tags=["User Management"])
+def delete_user(
+    username: str,
+    session: dict = Depends(require_permission("manage_users")),
+):
+    """Delete a user. Admin only. Cannot delete yourself."""
+    if username == session["username"]:
+        raise HTTPException(400, "Cannot delete your own account.")
+    if not db_get_user(username):
+        raise HTTPException(404, f"User '{username}' not found.")
+    with get_db() as conn:
+        conn.execute("DELETE FROM users WHERE username = ?", (username,))
+        conn.execute("DELETE FROM sessions WHERE username = ?", (username,))
+    print(f"[AUTH] User deleted: {username} by {session['username']}")
+    return {"status": "ok"}
+
+
+@app.patch("/users/{username}/role", tags=["User Management"])
+def update_role(
+    username: str,
+    payload: UpdateRoleRequest,
+    session: dict = Depends(require_permission("manage_users")),
+):
+    """Change a user's role. Admin only."""
+    if payload.role not in ROLES:
+        raise HTTPException(400, f"Invalid role. Must be one of: {list(ROLES.keys())}")
+    if not db_get_user(username):
+        raise HTTPException(404, f"User '{username}' not found.")
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE users SET role = ? WHERE username = ?",
+            (payload.role, username),
+        )
+        # Revoke existing sessions — force re-login with new role
+        conn.execute("DELETE FROM sessions WHERE username = ?", (username,))
+    print(f"[AUTH] Role updated: {username} → {payload.role} by {session['username']}")
+    return {"status": "ok", "username": username, "role": payload.role}
+
+
+# ── System Endpoints ──────────────────────────
 
 @app.get("/health", tags=["System"])
 def health():
+    # Public — no auth required
     return {
-        "status":       "ok",
-        "scapy":        SCAPY_AVAILABLE,
-        "timestamp":    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "status":    "ok",
+        "scapy":     SCAPY_AVAILABLE,
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
 
 
 @app.get("/status", tags=["System"])
-def status():
+def status(session: dict = Depends(require_auth)):
     uptime = None
     if system_stats["start_time"]:
         uptime = round(time.time() - system_stats["start_time"], 1)
@@ -447,14 +819,19 @@ def status():
         "alerts_stored":    len(alerts),
         "uptime_seconds":   uptime,
         "interface":        NETWORK_INTERFACE,
+        "user":             session["username"],
+        "role":             session["role"],
     }
 
 
+# ── Alert Endpoints ───────────────────────────
+
 @app.get("/alerts", tags=["Alerts"])
 def get_alerts(
-    limit:    int = Query(50,   ge=1, le=MAX_ALERTS_STORED),
-    severity: Optional[str] = Query(None, description="Filter by severity: low/medium/high/critical"),
-    alert_type: Optional[str] = Query(None, description="Filter by alert type"),
+    limit:      int = Query(50, ge=1, le=MAX_ALERTS_STORED),
+    severity:   Optional[str] = Query(None),
+    alert_type: Optional[str] = Query(None),
+    session: dict = Depends(require_permission("view_alerts")),
 ):
     with alerts_lock:
         result = list(alerts)
@@ -468,33 +845,28 @@ def get_alerts(
 
 
 @app.delete("/alerts", tags=["Alerts"])
-def clear_alerts():
-    """Clear all stored alerts. Called by the dashboard 'Clear Alerts' button."""
+def clear_alerts(session: dict = Depends(require_permission("delete_alerts"))):
+    """Admin only."""
     with alerts_lock:
         count = len(alerts)
         alerts.clear()
         system_stats["alerts_generated"] = 0
     with correlation_lock:
         correlation_tracker.clear()
-    print(f"[NIDS] Cleared {count} alerts.")
+    print(f"[NIDS] {session['username']} cleared {count} alerts.")
     return {"status": "ok", "cleared": count}
 
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 def serve_dashboard():
-    """
-    Serve the NIDS dashboard HTML directly from the API server.
-    This avoids browser CORS blocks that happen when opening the file via file://.
-    Place nids_dashboard.html next to main.py, then open http://127.0.0.1:8000
-    """
+    # Public — HTML must load before login can happen
     dashboard = Path("nids_dashboard.html")
     if not dashboard.exists():
         return HTMLResponse(
             content="""
             <html><body style='font-family:monospace;background:#0c1118;color:#64748b;padding:40px'>
             <h2 style='color:#ef4444'>Dashboard Not Found</h2>
-            <p>Place <code>nids_dashboard.html</code> in the same directory as <code>main.py</code></p>
-            <p>Then refresh this page.</p>
+            <p>Place <code>nids_dashboard.html</code> next to <code>main.py</code></p>
             </body></html>
             """,
             status_code=404,
@@ -503,11 +875,11 @@ def serve_dashboard():
 
 
 @app.post("/alert", tags=["Alerts"])
-def receive_external_alert(payload: ExternalAlert):
-    """
-    Accepts alerts from external sensors (e.g. live_ids_v2.py ML sensor).
-    Feeds them into the same alert store and correlation engine.
-    """
+def receive_external_alert(
+    payload: ExternalAlert,
+    sender: str = Depends(require_sensor),
+):
+    """Sensor-only endpoint. Requires X-Sensor-Key header."""
     alert = generate_alert(
         alert_type=payload.alert_type,
         severity=payload.severity,
@@ -520,31 +892,35 @@ def receive_external_alert(payload: ExternalAlert):
     return {"status": "ok", "alert_id": alert["id"]}
 
 
+# ── Control Endpoints (admin only) ────────────
+
 @app.post("/control/start", tags=["Control"])
-def control_start():
+def control_start(session: dict = Depends(require_permission("control_sniffer"))):
     global sniffer_thread
 
     if system_stats["running"]:
         raise HTTPException(400, "Sniffer already running.")
     if not SCAPY_AVAILABLE:
-        raise HTTPException(503, "Scapy not installed. Cannot capture packets.")
+        raise HTTPException(503, "Scapy not installed.")
 
     sniffer_stop_event.clear()
     sniffer_thread = threading.Thread(target=_sniffer_worker, daemon=True)
     sniffer_thread.start()
     system_stats["running"]    = True
     system_stats["start_time"] = time.time()
+    print(f"[NIDS] Sniffer started by {session['username']}")
 
     return {"status": "started", "interface": NETWORK_INTERFACE}
 
 
 @app.post("/control/stop", tags=["Control"])
-def control_stop():
+def control_stop(session: dict = Depends(require_permission("control_sniffer"))):
     if not system_stats["running"]:
         raise HTTPException(400, "Sniffer is not running.")
 
     sniffer_stop_event.set()
     system_stats["running"] = False
+    print(f"[NIDS] Sniffer stopped by {session['username']}")
 
     return {"status": "stopped"}
 
@@ -554,6 +930,7 @@ def control_stop():
 # ─────────────────────────────────────────────
 @app.on_event("startup")
 def on_startup():
+    init_db()
     print("[NIDS] main.py ready. POST /control/start to begin capture.")
     print("[NIDS] ML alerts expected from live_ids_v2.py via POST /alert")
 

@@ -8,982 +8,285 @@
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet"/>
 <style>
 :root {
-  --bg:       #0c1118;
-  --bg2:      #0f1923;
-  --card:     #131d28;
-  --card2:    #192434;
-  --card3:    #1e2c3d;
-  --border:   #1e3048;
-  --border2:  #253d5a;
-
-  --blue:     #3b82f6;
-  --blue-dim: rgba(59,130,246,0.12);
-  --teal:     #2dd4bf;
-  --teal-dim: rgba(45,212,191,0.1);
-  --green:    #22c55e;
-  --green-dim:rgba(34,197,94,0.1);
-  --amber:    #f59e0b;
-  --amber-dim:rgba(245,158,11,0.12);
-  --red:      #ef4444;
-  --red-dim:  rgba(239,68,68,0.12);
-  --purple:   #a78bfa;
-  --purple-dim:rgba(167,139,250,0.12);
-  --slate:    #64748b;
-
-  --text:     #cbd5e1;
-  --text-dim: #475569;
-  --text-bright: #f1f5f9;
-  --text-muted:  #334155;
-
-  --font-ui:   'Inter', sans-serif;
-  --font-mono: 'IBM Plex Mono', monospace;
-  --font-code: 'JetBrains Mono', monospace;
-
-  --radius:   6px;
-  --shadow:   0 1px 3px rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.3);
-  --shadow-lg:0 4px 20px rgba(0,0,0,0.5);
+  --bg:#0c1118; --bg2:#0f1923; --card:#131d28; --card2:#192434; --card3:#1e2c3d;
+  --border:#1e3048; --border2:#253d5a;
+  --blue:#3b82f6; --blue-dim:rgba(59,130,246,0.12);
+  --teal:#2dd4bf; --teal-dim:rgba(45,212,191,0.1);
+  --green:#22c55e; --green-dim:rgba(34,197,94,0.1);
+  --amber:#f59e0b; --amber-dim:rgba(245,158,11,0.12);
+  --red:#ef4444; --red-dim:rgba(239,68,68,0.12);
+  --purple:#a78bfa; --purple-dim:rgba(167,139,250,0.12);
+  --slate:#64748b; --text:#cbd5e1; --text-dim:#475569;
+  --text-bright:#f1f5f9; --text-muted:#334155;
+  --font-ui:'Inter',sans-serif; --font-mono:'IBM Plex Mono',monospace;
+  --font-code:'JetBrains Mono',monospace;
+  --radius:6px; --shadow:0 1px 3px rgba(0,0,0,0.4); --shadow-lg:0 4px 20px rgba(0,0,0,0.5);
 }
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size:13px;min-height:100vh;overflow-x:hidden;line-height:1.5}
 
-*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
-
-html { scroll-behavior: smooth; }
-
-body {
-  background: var(--bg);
-  color: var(--text);
-  font-family: var(--font-ui);
-  font-size: 13px;
-  min-height: 100vh;
-  overflow-x: hidden;
-  line-height: 1.5;
-}
-
-body::after {
-  content: '';
-  position: fixed;
-  inset: 0;
-  background:
-    radial-gradient(ellipse 60% 30% at 15% 0%, rgba(59,130,246,0.04) 0%, transparent 70%),
-    radial-gradient(ellipse 40% 25% at 85% 100%, rgba(45,212,191,0.03) 0%, transparent 60%);
-  pointer-events: none;
-  z-index: 0;
-}
+/* ── LOGIN ── */
+.login-overlay{position:fixed;inset:0;background:var(--bg);z-index:9000;display:flex;align-items:center;justify-content:center}
+.login-overlay.hidden{display:none}
+.login-box{background:var(--card);border:1px solid var(--border2);border-radius:10px;padding:40px 36px;width:380px;display:flex;flex-direction:column;gap:18px;box-shadow:0 8px 40px rgba(0,0,0,0.6),0 0 60px rgba(59,130,246,0.06)}
+.login-logo{display:flex;align-items:center;gap:14px;margin-bottom:6px}
+.login-title{font-family:var(--font-mono);font-size:18px;font-weight:700;color:var(--text-bright)}
+.login-sub{font-family:var(--font-mono);font-size:10px;color:var(--text-dim);letter-spacing:.5px}
+.login-error{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.35);border-radius:5px;padding:9px 12px;font-family:var(--font-mono);font-size:11px;color:var(--red)}
+.login-error.hidden{display:none}
+.login-field{display:flex;flex-direction:column;gap:6px}
+.login-field label{font-family:var(--font-mono);font-size:9px;letter-spacing:1.5px;color:var(--text-dim)}
+.login-field input{background:var(--card2);border:1px solid var(--border2);border-radius:5px;padding:10px 14px;font-family:var(--font-mono);font-size:13px;color:var(--text-bright);outline:none;transition:border-color .15s}
+.login-field input:focus{border-color:var(--blue);box-shadow:0 0 0 2px rgba(59,130,246,.15)}
+.login-field input::placeholder{color:var(--text-muted)}
+.login-btn{background:var(--blue);border:none;border-radius:5px;padding:12px;font-family:var(--font-mono);font-size:12px;font-weight:600;letter-spacing:1.5px;color:#fff;cursor:pointer;transition:background .15s,transform .1s;margin-top:4px}
+.login-btn:hover{background:#2563eb;transform:translateY(-1px)}
+.login-btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
+.login-hint{font-family:var(--font-mono);font-size:10px;color:var(--text-muted);text-align:center}
 
 /* ── TOP BAR ── */
-.topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 24px;
-  height: 54px;
-  background: var(--bg2);
-  border-bottom: 1px solid var(--border);
-  position: sticky;
-  top: 0;
-  z-index: 200;
-  gap: 16px;
-}
-
-.logo {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-shrink: 0;
-}
-
-.logo-shield {
-  width: 30px;
-  height: 30px;
-  border: 1.5px solid var(--blue);
-  border-radius: 5px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--blue-dim);
-}
-
-.logo-name {
-  font-family: var(--font-mono);
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-bright);
-  letter-spacing: 0.5px;
-}
-.logo-name span { color: var(--blue); }
-.logo-sub {
-  font-size: 10px;
-  color: var(--text-dim);
-  font-family: var(--font-mono);
-  letter-spacing: 0.5px;
-}
-
-.topbar-center {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 24px;
-}
-
-.sys-pill {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-dim);
-  background: var(--card);
-  border: 1px solid var(--border);
-  padding: 4px 10px;
-  border-radius: 4px;
-}
-.sys-pill .val { color: var(--text); font-weight: 500; }
-.sys-pill .val.up { color: var(--green); }
-.sys-pill .val.down { color: var(--red); }
-.sys-pill .val.warn { color: var(--amber); }
-
-.topbar-right {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
-}
-
-.pulse-dot {
-  width: 6px; height: 6px;
-  border-radius: 50%;
-  display: inline-block;
-  flex-shrink: 0;
-}
-.pulse-dot.green { background: var(--green); animation: dpulse 2s infinite; }
-.pulse-dot.red   { background: var(--red);   animation: dpulse 2s infinite; }
-.pulse-dot.amber { background: var(--amber); animation: dpulse 2s infinite; }
-.pulse-dot.blue  { background: var(--blue);  animation: dpulse 2s infinite; }
-
-@keyframes dpulse {
-  0%,100% { opacity:1; box-shadow: 0 0 0 0 currentColor; }
-  50%      { opacity:0.7; }
-}
-
-.api-chip {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 500;
-  padding: 3px 9px;
-  border-radius: 4px;
-  border: 1px solid;
-  letter-spacing: 0.5px;
-  transition: all .3s;
-}
-.api-chip.online  { color: var(--green);  border-color: rgba(34,197,94,0.35);  background: var(--green-dim); }
-.api-chip.offline { color: var(--red);    border-color: rgba(239,68,68,0.35);   background: var(--red-dim); }
-.api-chip.warn    { color: var(--amber);  border-color: rgba(245,158,11,0.35);  background: var(--amber-dim); }
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:0 24px;height:54px;background:var(--bg2);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:200;gap:16px}
+.logo{display:flex;align-items:center;gap:12px;flex-shrink:0}
+.logo-shield{width:30px;height:30px;border:1.5px solid var(--blue);border-radius:5px;display:flex;align-items:center;justify-content:center;background:var(--blue-dim)}
+.logo-name{font-family:var(--font-mono);font-size:14px;font-weight:600;color:var(--text-bright);letter-spacing:.5px}
+.logo-name span{color:var(--blue)}
+.logo-sub{font-size:10px;color:var(--text-dim);font-family:var(--font-mono);letter-spacing:.5px}
+.topbar-center{flex:1;display:flex;align-items:center;justify-content:center;gap:24px}
+.sys-pill{display:flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:11px;color:var(--text-dim);background:var(--card);border:1px solid var(--border);padding:4px 10px;border-radius:4px}
+.sys-pill .val{color:var(--text);font-weight:500}
+.sys-pill .val.up{color:var(--green)}
+.topbar-right{display:flex;align-items:center;gap:10px;flex-shrink:0}
+.session-chip{display:flex;align-items:center;gap:8px;font-family:var(--font-mono);font-size:10px;color:var(--text-dim);background:var(--card);border:1px solid var(--border);padding:4px 10px;border-radius:4px}
+.session-chip .role-badge{padding:2px 7px;border-radius:3px;font-size:9px;font-weight:600;letter-spacing:.8px;text-transform:uppercase}
+.role-admin{background:var(--red-dim);color:var(--red);border:1px solid rgba(239,68,68,.3)}
+.role-analyst{background:var(--amber-dim);color:var(--amber);border:1px solid rgba(245,158,11,.3)}
+.role-viewer{background:var(--blue-dim);color:var(--blue);border:1px solid rgba(59,130,246,.3)}
+.api-chip{font-family:var(--font-mono);font-size:10px;font-weight:500;padding:3px 9px;border-radius:4px;border:1px solid;letter-spacing:.5px;transition:all .3s}
+.api-chip.online{color:var(--green);border-color:rgba(34,197,94,.35);background:var(--green-dim)}
+.api-chip.offline{color:var(--red);border-color:rgba(239,68,68,.35);background:var(--red-dim)}
+.pulse-dot{width:6px;height:6px;border-radius:50%;display:inline-block;flex-shrink:0}
+.pulse-dot.red{background:var(--red);animation:dpulse 2s infinite}
+.pulse-dot.green{background:var(--green);animation:dpulse 2s infinite}
+@keyframes dpulse{0%,100%{opacity:1}50%{opacity:.7}}
 
 /* ── LAYOUT ── */
-.main {
-  padding: 18px 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  position: relative;
-  z-index: 1;
-}
-
-/* ── OFFLINE BANNER ── */
-.offline-banner {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: rgba(239,68,68,0.07);
-  border: 1px solid rgba(239,68,68,0.25);
-  border-radius: var(--radius);
-  padding: 11px 16px;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--red);
-  transition: all .3s;
-}
-.offline-banner.hidden { display: none; }
-.offline-banner strong { margin-right: 4px; }
+.main{padding:18px 24px;display:flex;flex-direction:column;gap:14px;position:relative;z-index:1}
+.offline-banner{display:flex;align-items:center;gap:10px;background:rgba(239,68,68,.07);border:1px solid rgba(239,68,68,.25);border-radius:var(--radius);padding:11px 16px;font-family:var(--font-mono);font-size:12px;color:var(--red)}
+.offline-banner.hidden{display:none}
 
 /* ── STAT GRID ── */
-.stat-grid {
-  display: grid;
-  grid-template-columns: repeat(8, 1fr);
-  gap: 10px;
-}
-
-.stat-card {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 14px 16px;
-  position: relative;
-  overflow: hidden;
-  transition: border-color .2s, transform .15s;
-}
-.stat-card:hover {
-  border-color: var(--border2);
-  transform: translateY(-1px);
-}
-.stat-card::after {
-  content: '';
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 2px;
-  border-radius: 2px 2px 0 0;
-}
-.sc-blue::after   { background: var(--blue); }
-.sc-teal::after   { background: var(--teal); }
-.sc-green::after  { background: var(--green); }
-.sc-amber::after  { background: var(--amber); }
-.sc-red::after    { background: var(--red); }
-.sc-purple::after { background: var(--purple); }
-
-.stat-label {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  color: var(--text-dim);
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  margin-bottom: 8px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.stat-value {
-  font-family: var(--font-mono);
-  font-size: 22px;
-  font-weight: 600;
-  color: var(--text-bright);
-  line-height: 1;
-  transition: all .3s;
-}
-.stat-value.v-blue   { color: var(--blue); }
-.stat-value.v-teal   { color: var(--teal); }
-.stat-value.v-green  { color: var(--green); }
-.stat-value.v-amber  { color: var(--amber); }
-.stat-value.v-red    { color: var(--red); }
-.stat-value.v-purple { color: var(--purple); }
-.stat-value.sm { font-size: 16px; }
-
-.stat-sub {
-  font-size: 10px;
-  color: var(--text-dim);
-  margin-top: 5px;
-  font-family: var(--font-mono);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+.stat-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:10px}
+.stat-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;position:relative;overflow:hidden;transition:border-color .2s,transform .15s}
+.stat-card:hover{border-color:var(--border2);transform:translateY(-1px)}
+.stat-card::after{content:'';position:absolute;top:0;left:0;right:0;height:2px;border-radius:2px 2px 0 0}
+.sc-blue::after{background:var(--blue)} .sc-teal::after{background:var(--teal)}
+.sc-green::after{background:var(--green)} .sc-amber::after{background:var(--amber)}
+.sc-red::after{background:var(--red)} .sc-purple::after{background:var(--purple)}
+.stat-label{font-family:var(--font-mono);font-size:9px;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stat-value{font-family:var(--font-mono);font-size:22px;font-weight:600;color:var(--text-bright);line-height:1;transition:all .3s}
+.stat-value.v-blue{color:var(--blue)} .stat-value.v-teal{color:var(--teal)}
+.stat-value.v-green{color:var(--green)} .stat-value.v-amber{color:var(--amber)}
+.stat-value.v-red{color:var(--red)} .stat-value.v-purple{color:var(--purple)}
+.stat-value.sm{font-size:16px}
+.stat-sub{font-size:10px;color:var(--text-dim);margin-top:5px;font-family:var(--font-mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 /* ── PANELS ── */
-.panel {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  overflow: hidden;
-  box-shadow: var(--shadow);
-}
-
-.panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--border);
-  background: var(--card2);
-  gap: 8px;
-  min-height: 40px;
-}
-
-.panel-title {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 1.5px;
-  color: var(--text-bright);
-  text-transform: uppercase;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  white-space: nowrap;
-}
-
-.panel-meta {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--text-dim);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.panel-body { padding: 14px; }
-
-.live-badge {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--red);
-  letter-spacing: 0.5px;
-}
-
-/* ── LAYOUT ROWS ── */
-.row-2col  { display: grid; grid-template-columns: 1.7fr 1fr;   gap: 14px; }
-.row-3col  { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
-.row-a    { display: grid; grid-template-columns: 1fr 1.5fr;   gap: 14px; }
-
-/* ── CHART WRAPPERS ── */
-.chart-wrap { height: 220px; position: relative; }
-.chart-wrap-lg { height: 260px; position: relative; }
+.panel{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow)}
+.panel-header{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-bottom:1px solid var(--border);background:var(--card2);gap:8px;min-height:40px}
+.panel-title{font-family:var(--font-mono);font-size:10px;font-weight:600;letter-spacing:1.5px;color:var(--text-bright);text-transform:uppercase;display:flex;align-items:center;gap:7px;white-space:nowrap}
+.panel-meta{font-family:var(--font-mono);font-size:10px;color:var(--text-dim);display:flex;align-items:center;gap:8px}
+.panel-body{padding:14px}
+.live-badge{display:flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:10px;color:var(--red);letter-spacing:.5px}
+.row-2col{display:grid;grid-template-columns:1.7fr 1fr;gap:14px}
+.row-3col{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+.row-a{display:grid;grid-template-columns:1fr 1.5fr;gap:14px}
+.chart-wrap{height:220px;position:relative}
+.chart-wrap-lg{height:260px;position:relative}
 
 /* ── ALERTS LIST ── */
-.alerts-container {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  max-height: 400px;
-  overflow-y: auto;
-  padding: 2px 0;
-}
-.alerts-container::-webkit-scrollbar { width: 4px; }
-.alerts-container::-webkit-scrollbar-track { background: transparent; }
-.alerts-container::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.alerts-container{display:flex;flex-direction:column;gap:3px;max-height:400px;overflow-y:auto;padding:2px 0}
+.alerts-container::-webkit-scrollbar{width:4px}
+.alerts-container::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+.alert-item{display:flex;align-items:flex-start;gap:10px;padding:9px 12px;border-left:3px solid transparent;border-radius:0 4px 4px 0;background:var(--card2);cursor:pointer;transition:background .15s,transform .1s}
+.alert-item:hover{background:var(--card3);transform:translateX(2px)}
+.alert-item.sev-critical{border-left-color:var(--red)}
+.alert-item.sev-high{border-left-color:var(--amber)}
+.alert-item.sev-medium{border-left-color:#eab308}
+.alert-item.sev-low{border-left-color:var(--green)}
+.alert-sev-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;margin-top:4px}
+.sev-critical .alert-sev-dot{background:var(--red)}
+.sev-high .alert-sev-dot{background:var(--amber)}
+.sev-medium .alert-sev-dot{background:#eab308}
+.sev-low .alert-sev-dot{background:var(--green)}
+.alert-body{flex:1;min-width:0}
+.alert-top{display:flex;align-items:center;gap:7px;margin-bottom:3px;flex-wrap:wrap}
+.sev-tag{font-family:var(--font-mono);font-size:9px;font-weight:600;padding:1px 6px;border-radius:3px;letter-spacing:.8px;text-transform:uppercase;flex-shrink:0}
+.tag-critical{background:rgba(239,68,68,.15);color:var(--red);border:1px solid rgba(239,68,68,.3)}
+.tag-high{background:rgba(245,158,11,.15);color:var(--amber);border:1px solid rgba(245,158,11,.3)}
+.tag-medium{background:rgba(234,179,8,.15);color:#eab308;border:1px solid rgba(234,179,8,.3)}
+.tag-low{background:rgba(34,197,94,.12);color:var(--green);border:1px solid rgba(34,197,94,.25)}
+.alert-type-tag{font-family:var(--font-mono);font-size:10px;color:var(--blue);flex-shrink:0}
+.alert-ts{font-family:var(--font-mono);font-size:10px;color:var(--text-dim);flex:1;text-align:right;white-space:nowrap}
+.alert-msg{font-size:12px;color:var(--text);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.alert-src{font-family:var(--font-mono);font-size:10px;color:var(--text-dim);margin-top:2px}
+.alert-count-badge{flex-shrink:0;font-family:var(--font-mono);font-size:10px;font-weight:600;background:var(--card3);border:1px solid var(--border2);color:var(--text);padding:2px 7px;border-radius:10px;align-self:flex-start;margin-top:2px}
+.no-alerts-msg{padding:32px;text-align:center;font-family:var(--font-mono);font-size:11px;color:var(--text-dim)}
 
-.alert-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 9px 12px;
-  border-left: 3px solid transparent;
-  border-radius: 0 4px 4px 0;
-  background: var(--card2);
-  cursor: pointer;
-  transition: background .15s, transform .1s;
-  position: relative;
-}
-.alert-item:hover  { background: var(--card3); transform: translateX(2px); }
-.alert-item.sev-critical { border-left-color: var(--red); }
-.alert-item.sev-high     { border-left-color: var(--amber); }
-.alert-item.sev-medium   { border-left-color: #eab308; }
-.alert-item.sev-low      { border-left-color: var(--green); }
-
-.alert-sev-dot {
-  width: 7px; height: 7px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  margin-top: 4px;
-}
-.sev-critical .alert-sev-dot { background: var(--red); }
-.sev-high     .alert-sev-dot { background: var(--amber); }
-.sev-medium   .alert-sev-dot { background: #eab308; }
-.sev-low      .alert-sev-dot { background: var(--green); }
-
-.alert-body { flex: 1; min-width: 0; }
-.alert-top  { display: flex; align-items: center; gap: 7px; margin-bottom: 3px; flex-wrap: wrap; }
-
-.sev-tag {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 600;
-  padding: 1px 6px;
-  border-radius: 3px;
-  letter-spacing: 0.8px;
-  text-transform: uppercase;
-  flex-shrink: 0;
-}
-.tag-critical { background: rgba(239,68,68,0.15);  color: var(--red);    border: 1px solid rgba(239,68,68,0.3); }
-.tag-high     { background: rgba(245,158,11,0.15); color: var(--amber);  border: 1px solid rgba(245,158,11,0.3); }
-.tag-medium   { background: rgba(234,179,8,0.15);  color: #eab308;       border: 1px solid rgba(234,179,8,0.3); }
-.tag-low      { background: rgba(34,197,94,0.12);  color: var(--green);  border: 1px solid rgba(34,197,94,0.25); }
-
-.alert-type-tag {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--blue);
-  flex-shrink: 0;
-}
-.alert-ts {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--text-dim);
-  flex: 1;
-  text-align: right;
-  white-space: nowrap;
-}
-.alert-msg {
-  font-size: 12px;
-  color: var(--text);
-  font-weight: 500;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.alert-src {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--text-dim);
-  margin-top: 2px;
-}
-.alert-count-badge {
-  flex-shrink: 0;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  background: var(--card3);
-  border: 1px solid var(--border2);
-  color: var(--text);
-  padding: 2px 7px;
-  border-radius: 10px;
-  align-self: flex-start;
-  margin-top: 2px;
-}
-
-.no-alerts-msg {
-  padding: 32px;
-  text-align: center;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-dim);
-}
-
-/* ── TOP IPs TABLE ── */
-.ip-list { display: flex; flex-direction: column; gap: 4px; }
-.ip-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  background: var(--card2);
-  border-radius: 4px;
-  border: 1px solid transparent;
-  transition: border-color .15s;
-}
-.ip-row:hover { border-color: var(--border2); }
-.ip-rank {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--text-muted);
-  width: 16px;
-  flex-shrink: 0;
-  text-align: center;
-}
-.ip-addr {
-  font-family: var(--font-code);
-  font-size: 12px;
-  color: var(--text-bright);
-  flex: 1;
-}
-.ip-bar-wrap {
-  flex: 2;
-  height: 6px;
-  background: var(--card3);
-  border-radius: 3px;
-  overflow: hidden;
-}
-.ip-bar {
-  height: 100%;
-  border-radius: 3px;
-  background: linear-gradient(90deg, var(--blue), var(--teal));
-  transition: width .5s ease;
-}
-.ip-count {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-dim);
-  flex-shrink: 0;
-  width: 28px;
-  text-align: right;
-}
-
-/* ── PORTS TABLE ── */
-.port-list { display: flex; flex-direction: column; gap: 4px; }
-.port-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 7px 10px;
-  background: var(--card2);
-  border-radius: 4px;
-}
-.port-num {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--teal);
-  width: 50px;
-  flex-shrink: 0;
-}
-.port-name {
-  font-size: 11px;
-  color: var(--text-dim);
-  flex: 1;
-}
-.port-bar-wrap {
-  flex: 2;
-  height: 5px;
-  background: var(--card3);
-  border-radius: 3px;
-  overflow: hidden;
-}
-.port-bar {
-  height: 100%;
-  border-radius: 3px;
-  background: linear-gradient(90deg, var(--teal), var(--blue));
-  transition: width .5s;
-}
-.port-count {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-dim);
-  width: 24px;
-  text-align: right;
-}
-
-/* ── ATTACK RATE ── */
-.rate-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-.rate-card {
-  background: var(--card2);
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  padding: 12px;
-  text-align: center;
-}
-.rate-num {
-  font-family: var(--font-mono);
-  font-size: 24px;
-  font-weight: 600;
-  color: var(--text-bright);
-  line-height: 1;
-}
-.rate-label {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  color: var(--text-dim);
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  margin-top: 5px;
-}
+/* ── IP / PORT LISTS ── */
+.ip-list,.port-list{display:flex;flex-direction:column;gap:4px}
+.ip-row{display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--card2);border-radius:4px;border:1px solid transparent;transition:border-color .15s}
+.ip-row:hover{border-color:var(--border2)}
+.ip-rank{font-family:var(--font-mono);font-size:10px;color:var(--text-muted);width:16px;flex-shrink:0;text-align:center}
+.ip-addr{font-family:var(--font-code);font-size:12px;color:var(--text-bright);flex:1}
+.ip-bar-wrap,.port-bar-wrap{flex:2;height:6px;background:var(--card3);border-radius:3px;overflow:hidden}
+.ip-bar{height:100%;border-radius:3px;background:linear-gradient(90deg,var(--blue),var(--teal));transition:width .5s}
+.ip-count,.port-count{font-family:var(--font-mono);font-size:11px;color:var(--text-dim);flex-shrink:0;width:28px;text-align:right}
+.port-row{display:flex;align-items:center;gap:10px;padding:7px 10px;background:var(--card2);border-radius:4px}
+.port-num{font-family:var(--font-mono);font-size:11px;color:var(--teal);width:50px;flex-shrink:0}
+.port-name{font-size:11px;color:var(--text-dim);flex:1}
+.port-bar{height:100%;border-radius:3px;background:linear-gradient(90deg,var(--teal),var(--blue));transition:width .5s}
 
 /* ── DONUT ── */
-.donut-wrap {
-  display: flex;
-  align-items: center;
-  gap: 20px;
-  padding: 4px 0;
-}
-.donut-canvas-wrap {
-  position: relative;
-  width: 150px;
-  height: 150px;
-  flex-shrink: 0;
-}
-.donut-center {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
-}
-.donut-num {
-  font-family: var(--font-mono);
-  font-size: 26px;
-  font-weight: 600;
-  color: var(--text-bright);
-  line-height: 1;
-}
-.donut-lbl {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  color: var(--text-dim);
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  margin-top: 4px;
-}
-.donut-legend {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  flex: 1;
-}
-.leg-row {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 11px;
-  color: var(--text-dim);
-}
-.leg-swatch {
-  width: 8px; height: 8px;
-  border-radius: 2px;
-  flex-shrink: 0;
-}
-.leg-val {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text);
-  margin-left: auto;
-}
+.donut-wrap{display:flex;align-items:center;gap:20px;padding:4px 0}
+.donut-canvas-wrap{position:relative;width:150px;height:150px;flex-shrink:0}
+.donut-center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none}
+.donut-num{font-family:var(--font-mono);font-size:26px;font-weight:600;color:var(--text-bright);line-height:1}
+.donut-lbl{font-family:var(--font-mono);font-size:9px;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-top:4px}
+.donut-legend{display:flex;flex-direction:column;gap:7px;flex:1}
+.leg-row{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--text-dim)}
+.leg-swatch{width:8px;height:8px;border-radius:2px;flex-shrink:0}
+.leg-val{font-family:var(--font-mono);font-size:11px;color:var(--text);margin-left:auto}
 
 /* ── MODEL TABLE ── */
-.model-tbl { width: 100%; border-collapse: collapse; }
-.model-tbl th {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  letter-spacing: 1px;
-  color: var(--text-dim);
-  text-transform: uppercase;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
-  text-align: left;
-  font-weight: 500;
-  background: var(--card2);
-}
-.model-tbl td {
-  padding: 9px 12px;
-  border-bottom: 1px solid rgba(30,48,72,0.5);
-  font-size: 12px;
-}
-.model-tbl tr:last-child td { border-bottom: none; }
-.model-tbl tr:hover td { background: rgba(59,130,246,0.03); }
-.model-tbl .active-row td { background: rgba(59,130,246,0.05); }
-.tbl-name { font-family: var(--font-mono); font-size: 11px; color: var(--text); }
-.tbl-active { display: flex; align-items: center; gap: 6px; }
-.active-pip {
-  width: 5px; height: 5px; border-radius: 50%;
-  background: var(--green);
-  box-shadow: 0 0 4px var(--green);
-}
-.v-green-s { font-family: var(--font-mono); font-size: 11px; color: var(--green); }
-.v-blue-s  { font-family: var(--font-mono); font-size: 11px; color: var(--blue); }
-.v-amber-s { font-family: var(--font-mono); font-size: 11px; color: var(--amber); }
-.v-dim-s   { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); }
+.model-tbl{width:100%;border-collapse:collapse}
+.model-tbl th{font-family:var(--font-mono);font-size:9px;letter-spacing:1px;color:var(--text-dim);text-transform:uppercase;padding:8px 12px;border-bottom:1px solid var(--border);text-align:left;font-weight:500;background:var(--card2)}
+.model-tbl td{padding:9px 12px;border-bottom:1px solid rgba(30,48,72,.5);font-size:12px}
+.model-tbl tr:last-child td{border-bottom:none}
+.model-tbl tr:hover td{background:rgba(59,130,246,.03)}
+.tbl-name{font-family:var(--font-mono);font-size:11px;color:var(--text)}
+.tbl-active{display:flex;align-items:center;gap:6px}
+.active-pip{width:5px;height:5px;border-radius:50%;background:var(--green);box-shadow:0 0 4px var(--green)}
+.v-green-s{font-family:var(--font-mono);font-size:11px;color:var(--green)}
+.v-blue-s{font-family:var(--font-mono);font-size:11px;color:var(--blue)}
+.v-amber-s{font-family:var(--font-mono);font-size:11px;color:var(--amber)}
+.v-dim-s{font-family:var(--font-mono);font-size:11px;color:var(--text-dim)}
 
 /* ── FEATURE BARS ── */
-.feat-list { display: flex; flex-direction: column; gap: 9px; }
-.feat-row  { display: flex; align-items: center; gap: 10px; }
-.feat-lbl  {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--text-dim);
-  width: 140px;
-  flex-shrink: 0;
-  text-align: right;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.feat-track {
-  flex: 1;
-  height: 6px;
-  background: var(--card3);
-  border-radius: 3px;
-  overflow: hidden;
-}
-.feat-fill {
-  height: 100%;
-  border-radius: 3px;
-  background: linear-gradient(90deg, var(--blue), var(--teal));
-  transition: width 1.2s ease-out;
-}
-.feat-pct {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--text-dim);
-  width: 32px;
-  text-align: right;
-}
+.feat-list{display:flex;flex-direction:column;gap:9px}
+.feat-row{display:flex;align-items:center;gap:10px}
+.feat-lbl{font-family:var(--font-mono);font-size:10px;color:var(--text-dim);width:140px;flex-shrink:0;text-align:right}
+.feat-track{flex:1;height:6px;background:var(--card3);border-radius:3px;overflow:hidden}
+.feat-fill{height:100%;border-radius:3px;background:linear-gradient(90deg,var(--blue),var(--teal));transition:width 1.2s ease-out}
+.feat-pct{font-family:var(--font-mono);font-size:10px;color:var(--text-dim);width:32px;text-align:right}
 
-/* ── CONTROLS ── */
-.ctrl-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
+/* ── BUTTONS ── */
+.btn{font-family:var(--font-mono);font-size:10px;font-weight:500;letter-spacing:.8px;text-transform:uppercase;padding:7px 14px;border-radius:var(--radius);border:1px solid;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:all .15s;white-space:nowrap}
+.btn:hover{transform:translateY(-1px)}
+.btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
+.btn-blue{background:var(--blue-dim);border-color:rgba(59,130,246,.4);color:var(--blue)}
+.btn-blue:hover{background:rgba(59,130,246,.18)}
+.btn-teal{background:var(--teal-dim);border-color:rgba(45,212,191,.35);color:var(--teal)}
+.btn-teal:hover{background:rgba(45,212,191,.18)}
+.btn-red{background:var(--red-dim);border-color:rgba(239,68,68,.35);color:var(--red)}
+.btn-red:hover{background:rgba(239,68,68,.2)}
+.btn-amber{background:var(--amber-dim);border-color:rgba(245,158,11,.35);color:var(--amber)}
+.btn-amber:hover{background:rgba(245,158,11,.2)}
+.btn-green{background:var(--green-dim);border-color:rgba(34,197,94,.35);color:var(--green)}
+.btn-green:hover{background:rgba(34,197,94,.18)}
+.btn-purple{background:var(--purple-dim);border-color:rgba(167,139,250,.35);color:var(--purple)}
+.ctrl-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.last-action{font-family:var(--font-mono);font-size:10px;color:var(--text-dim);margin-left:auto}
 
-.btn {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.8px;
-  text-transform: uppercase;
-  padding: 7px 14px;
-  border-radius: var(--radius);
-  border: 1px solid;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  transition: all .15s;
-  position: relative;
-  overflow: hidden;
-  white-space: nowrap;
-}
-.btn:hover { transform: translateY(-1px); }
-.btn:active { transform: translateY(0); }
-.btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
-
-.btn-blue {
-  background: var(--blue-dim);
-  border-color: rgba(59,130,246,0.4);
-  color: var(--blue);
-}
-.btn-blue:hover { background: rgba(59,130,246,0.18); box-shadow: 0 0 12px rgba(59,130,246,0.2); }
-
-.btn-teal {
-  background: var(--teal-dim);
-  border-color: rgba(45,212,191,0.35);
-  color: var(--teal);
-}
-.btn-teal:hover { background: rgba(45,212,191,0.18); box-shadow: 0 0 12px rgba(45,212,191,0.15); }
-
-.btn-red {
-  background: var(--red-dim);
-  border-color: rgba(239,68,68,0.35);
-  color: var(--red);
-}
-.btn-red:hover { background: rgba(239,68,68,0.2); box-shadow: 0 0 12px rgba(239,68,68,0.2); }
-
-.btn-amber {
-  background: var(--amber-dim);
-  border-color: rgba(245,158,11,0.35);
-  color: var(--amber);
-}
-.btn-amber:hover { background: rgba(245,158,11,0.2); box-shadow: 0 0 12px rgba(245,158,11,0.15); }
-
-.btn-green {
-  background: var(--green-dim);
-  border-color: rgba(34,197,94,0.35);
-  color: var(--green);
-}
-.btn-green:hover { background: rgba(34,197,94,0.18); }
-
-.last-action {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--text-dim);
-  margin-left: auto;
-}
+/* ── USER MANAGEMENT PANEL ── */
+.user-table{width:100%;border-collapse:collapse}
+.user-table th{font-family:var(--font-mono);font-size:9px;letter-spacing:1px;color:var(--text-dim);text-transform:uppercase;padding:8px 12px;border-bottom:1px solid var(--border);text-align:left;background:var(--card2)}
+.user-table td{padding:9px 12px;border-bottom:1px solid rgba(30,48,72,.5);font-size:12px;font-family:var(--font-mono)}
+.user-table tr:last-child td{border-bottom:none}
+.user-table tr:hover td{background:rgba(59,130,246,.03)}
+.user-form{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;padding:12px 0 4px}
+.user-form input,.user-form select{background:var(--card2);border:1px solid var(--border2);border-radius:4px;padding:7px 10px;font-family:var(--font-mono);font-size:11px;color:var(--text-bright);outline:none}
+.user-form input:focus,.user-form select:focus{border-color:var(--blue)}
+.user-form select option{background:var(--card)}
 
 /* ── MODAL ── */
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(9, 14, 22, 0.9);
-  backdrop-filter: blur(4px);
-  z-index: 1000;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  animation: fadeIn .15s;
-}
-.modal-overlay.open { display: flex; }
-@keyframes fadeIn { from{opacity:0;} to{opacity:1;} }
-
-.modal-box {
-  background: var(--card);
-  border: 1px solid var(--border2);
-  border-radius: 8px;
-  width: 92%;
-  max-width: 800px;
-  max-height: 88vh;
-  overflow-y: auto;
-  animation: slideUp .2s ease-out;
-  box-shadow: var(--shadow-lg), 0 0 40px rgba(59,130,246,0.08);
-}
-@keyframes slideUp { from{transform:translateY(16px);opacity:0;} to{transform:translateY(0);opacity:1;} }
-.modal-box::-webkit-scrollbar { width: 5px; }
-.modal-box::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
-
-.modal-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 20px;
-  border-bottom: 1px solid var(--border);
-  background: var(--card2);
-}
-.modal-head-left { display: flex; align-items: center; gap: 12px; }
-.modal-sev {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 600;
-  padding: 3px 10px;
-  border-radius: 4px;
-  letter-spacing: 1px;
-  border: 1px solid;
-}
-.modal-sev.critical { color: var(--red);    background: var(--red-dim);    border-color: rgba(239,68,68,0.4); }
-.modal-sev.high     { color: var(--amber);  background: var(--amber-dim);  border-color: rgba(245,158,11,0.4); }
-.modal-sev.medium   { color: #eab308;       background: rgba(234,179,8,.12);border-color: rgba(234,179,8,0.4); }
-.modal-sev.low      { color: var(--green);  background: var(--green-dim);  border-color: rgba(34,197,94,0.35); }
-
-.modal-title { font-size: 15px; font-weight: 600; color: var(--text-bright); }
-.modal-ts    { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); }
-
-.btn-close {
-  background: transparent;
-  border: 1px solid var(--border2);
-  color: var(--text-dim);
-  padding: 5px 10px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  transition: all .15s;
-}
-.btn-close:hover { border-color: var(--red); color: var(--red); }
-
-.modal-body { padding: 20px; display: flex; flex-direction: column; gap: 20px; }
-
-.m-section-title {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 1.5px;
-  color: var(--text-dim);
-  text-transform: uppercase;
-  margin-bottom: 10px;
-  padding-bottom: 6px;
-  border-bottom: 1px solid var(--border);
-}
-
-.m-info-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-}
-.m-info-cell {
-  background: var(--card2);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 10px 12px;
-}
-.m-info-lbl {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  color: var(--text-dim);
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  margin-bottom: 4px;
-}
-.m-info-val {
-  font-family: var(--font-code);
-  font-size: 12px;
-  color: var(--text-bright);
-  word-break: break-all;
-}
-
-.m-msg-box {
-  background: var(--card2);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 12px 14px;
-  font-size: 13px;
-  color: var(--text);
-  font-weight: 500;
-}
-
-.m-details-pre {
-  background: var(--card2);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 12px 14px;
-  font-family: var(--font-code);
-  font-size: 11px;
-  color: var(--text);
-  white-space: pre-wrap;
-  word-break: break-all;
-  max-height: 180px;
-  overflow-y: auto;
-  line-height: 1.6;
-}
-
-.m-actions { display: flex; flex-direction: column; gap: 8px; }
-.m-action {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 10px 12px;
-  background: var(--card2);
-  border: 1px solid var(--border);
-  border-left: 3px solid transparent;
-  border-radius: 0 4px 4px 0;
-}
-.m-action.p-high   { border-left-color: var(--red); }
-.m-action.p-medium { border-left-color: var(--amber); }
-.m-action.p-low    { border-left-color: var(--green); }
-.m-action-name  { font-size: 13px; font-weight: 600; color: var(--text-bright); margin-bottom: 3px; }
-.m-action-desc  { font-size: 11px; color: var(--text-dim); font-family: var(--font-mono); }
-.m-action-badge {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.8px;
-  padding: 2px 7px;
-  border-radius: 3px;
-  flex-shrink: 0;
-  text-transform: uppercase;
-}
-.m-action.p-high   .m-action-badge { background: var(--red-dim);   color: var(--red);   border: 1px solid rgba(239,68,68,0.3); }
-.m-action.p-medium .m-action-badge { background: var(--amber-dim); color: var(--amber); border: 1px solid rgba(245,158,11,0.3); }
-.m-action.p-low    .m-action-badge { background: var(--green-dim); color: var(--green); border: 1px solid rgba(34,197,94,0.25); }
+.modal-overlay{position:fixed;inset:0;background:rgba(9,14,22,.9);backdrop-filter:blur(4px);z-index:1000;display:none;align-items:center;justify-content:center}
+.modal-overlay.open{display:flex}
+.modal-box{background:var(--card);border:1px solid var(--border2);border-radius:8px;width:92%;max-width:800px;max-height:88vh;overflow-y:auto;box-shadow:var(--shadow-lg)}
+.modal-head{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid var(--border);background:var(--card2)}
+.modal-head-left{display:flex;align-items:center;gap:12px}
+.modal-sev{font-family:var(--font-mono);font-size:11px;font-weight:600;padding:3px 10px;border-radius:4px;letter-spacing:1px;border:1px solid}
+.modal-sev.critical{color:var(--red);background:var(--red-dim);border-color:rgba(239,68,68,.4)}
+.modal-sev.high{color:var(--amber);background:var(--amber-dim);border-color:rgba(245,158,11,.4)}
+.modal-sev.medium{color:#eab308;background:rgba(234,179,8,.12);border-color:rgba(234,179,8,.4)}
+.modal-sev.low{color:var(--green);background:var(--green-dim);border-color:rgba(34,197,94,.35)}
+.modal-title{font-size:15px;font-weight:600;color:var(--text-bright)}
+.modal-ts{font-family:var(--font-mono);font-size:11px;color:var(--text-dim)}
+.btn-close{background:transparent;border:1px solid var(--border2);color:var(--text-dim);padding:5px 10px;border-radius:4px;cursor:pointer;font-family:var(--font-mono);font-size:11px;transition:all .15s}
+.btn-close:hover{border-color:var(--red);color:var(--red)}
+.modal-body{padding:20px;display:flex;flex-direction:column;gap:20px}
+.m-section-title{font-family:var(--font-mono);font-size:10px;letter-spacing:1.5px;color:var(--text-dim);text-transform:uppercase;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border)}
+.m-info-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.m-info-cell{background:var(--card2);border:1px solid var(--border);border-radius:4px;padding:10px 12px}
+.m-info-lbl{font-family:var(--font-mono);font-size:9px;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:4px}
+.m-info-val{font-family:var(--font-code);font-size:12px;color:var(--text-bright);word-break:break-all}
+.m-msg-box{background:var(--card2);border:1px solid var(--border);border-radius:4px;padding:12px 14px;font-size:13px;color:var(--text);font-weight:500}
+.m-details-pre{background:var(--card2);border:1px solid var(--border);border-radius:4px;padding:12px 14px;font-family:var(--font-code);font-size:11px;color:var(--text);white-space:pre-wrap;word-break:break-all;max-height:180px;overflow-y:auto;line-height:1.6}
+.m-actions{display:flex;flex-direction:column;gap:8px}
+.m-action{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;background:var(--card2);border:1px solid var(--border);border-left:3px solid transparent;border-radius:0 4px 4px 0}
+.m-action.p-high{border-left-color:var(--red)}
+.m-action.p-medium{border-left-color:var(--amber)}
+.m-action.p-low{border-left-color:var(--green)}
+.m-action-name{font-size:13px;font-weight:600;color:var(--text-bright);margin-bottom:3px}
+.m-action-desc{font-size:11px;color:var(--text-dim);font-family:var(--font-mono)}
+.m-action-badge{font-family:var(--font-mono);font-size:9px;font-weight:600;letter-spacing:.8px;padding:2px 7px;border-radius:3px;flex-shrink:0;text-transform:uppercase}
+.m-action.p-high .m-action-badge{background:var(--red-dim);color:var(--red);border:1px solid rgba(239,68,68,.3)}
+.m-action.p-medium .m-action-badge{background:var(--amber-dim);color:var(--amber);border:1px solid rgba(245,158,11,.3)}
+.m-action.p-low .m-action-badge{background:var(--green-dim);color:var(--green);border:1px solid rgba(34,197,94,.25)}
 
 /* ── TOAST ── */
-.toast {
-  position: fixed;
-  bottom: 20px;
-  right: 20px;
-  background: var(--card2);
-  border: 1px solid var(--border2);
-  border-left: 3px solid var(--blue);
-  border-radius: 5px;
-  padding: 10px 14px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text);
-  z-index: 9999;
-  max-width: 300px;
-  transform: translateX(120%);
-  transition: transform .25s ease;
-  box-shadow: var(--shadow-lg);
-}
-.toast.show { transform: translateX(0); }
-.toast.t-error { border-left-color: var(--red); }
-.toast.t-warn  { border-left-color: var(--amber); }
-.toast.t-ok    { border-left-color: var(--green); }
-.toast-title { font-weight: 600; margin-bottom: 3px; color: var(--text-bright); font-size: 11px; }
+.toast{position:fixed;bottom:20px;right:20px;background:var(--card2);border:1px solid var(--border2);border-left:3px solid var(--blue);border-radius:5px;padding:10px 14px;font-family:var(--font-mono);font-size:11px;color:var(--text);z-index:9999;max-width:300px;transform:translateX(120%);transition:transform .25s ease;box-shadow:var(--shadow-lg)}
+.toast.show{transform:translateX(0)}
+.toast.t-error{border-left-color:var(--red)}
+.toast.t-warn{border-left-color:var(--amber)}
+.toast.t-ok{border-left-color:var(--green)}
+.toast-title{font-weight:600;margin-bottom:3px;color:var(--text-bright);font-size:11px}
 
-/* ── SCROLLBAR GLOBAL ── */
-::-webkit-scrollbar { width: 5px; height: 5px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: var(--border2); }
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
 
-/* ── RESPONSIVE ── */
-@media (max-width: 1200px) {
-  .stat-grid { grid-template-columns: repeat(4, 1fr); }
-  .row-2col  { grid-template-columns: 1fr; }
-  .row-3col  { grid-template-columns: 1fr 1fr; }
-  .row-a     { grid-template-columns: 1fr; }
-}
-@media (max-width: 768px) {
-  .stat-grid { grid-template-columns: repeat(2, 1fr); }
-  .row-3col  { grid-template-columns: 1fr; }
-  .topbar-center { display: none; }
-}
+@media(max-width:1200px){.stat-grid{grid-template-columns:repeat(4,1fr)}.row-2col{grid-template-columns:1fr}.row-3col{grid-template-columns:1fr 1fr}.row-a{grid-template-columns:1fr}}
+@media(max-width:768px){.stat-grid{grid-template-columns:repeat(2,1fr)}.row-3col{grid-template-columns:1fr}.topbar-center{display:none}}
 </style>
 </head>
 <body>
+
+<!-- LOGIN OVERLAY -->
+<div class="login-overlay" id="login-overlay">
+  <div class="login-box">
+    <div class="login-logo">
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+      </svg>
+      <div>
+        <div class="login-title">NIDS<span style="color:var(--blue)">://</span>MONITOR</div>
+        <div class="login-sub">Security Operations Center — Authentication Required</div>
+      </div>
+    </div>
+    <div class="login-error hidden" id="login-error">Invalid username or password.</div>
+    <div class="login-field">
+      <label>USERNAME</label>
+      <input type="text" id="login-user" placeholder="Enter username" autocomplete="username"/>
+    </div>
+    <div class="login-field">
+      <label>PASSWORD</label>
+      <input type="password" id="login-pass" placeholder="Enter password" autocomplete="current-password"/>
+    </div>
+    <button class="login-btn" id="login-btn" onclick="doLogin()">AUTHENTICATE</button>
+    <div class="login-hint">Session expires after 8 hours.</div>
+  </div>
+</div>
 
 <!-- TOP BAR -->
 <div class="topbar">
@@ -998,23 +301,18 @@ body::after {
       <div class="logo-sub">Security Operations Center</div>
     </div>
   </div>
-
   <div class="topbar-center">
-    <div class="sys-pill">
-      Interface <span class="val" id="tp-iface">—</span>
-    </div>
-    <div class="sys-pill">
-      Sniffer <span class="val" id="tp-sniffer" style="color:var(--amber)">Checking</span>
-    </div>
-    <div class="sys-pill">
-      Uptime <span class="val up" id="tp-uptime">0s</span>
-    </div>
-    <div class="sys-pill">
-      Rate <span class="val" id="tp-rate">0 pkt/s</span>
-    </div>
+    <div class="sys-pill">Interface <span class="val" id="tp-iface">—</span></div>
+    <div class="sys-pill">Sniffer <span class="val" id="tp-sniffer" style="color:var(--amber)">Checking</span></div>
+    <div class="sys-pill">Uptime <span class="val up" id="tp-uptime">0s</span></div>
+    <div class="sys-pill">Rate <span class="val" id="tp-rate">0 pkt/s</span></div>
   </div>
-
   <div class="topbar-right">
+    <div class="session-chip" id="session-chip" style="display:none">
+      <span id="session-user"></span>
+      <span class="role-badge" id="role-badge"></span>
+      <button class="btn btn-red" style="padding:3px 8px;font-size:9px;" onclick="doLogout()">LOGOUT</button>
+    </div>
     <div class="api-chip offline" id="api-chip">API OFFLINE</div>
   </div>
 </div>
@@ -1022,122 +320,59 @@ body::after {
 <!-- MAIN -->
 <div class="main">
 
-  <!-- Offline Banner -->
-  <div class="offline-banner" id="offline-banner">
+  <div class="offline-banner hidden" id="offline-banner">
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
       <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
       <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
     </svg>
-    <strong>Backend offline.</strong> Cannot reach <code>http://127.0.0.1:8000</code> — retrying every 2s
+    <strong>Backend offline.</strong> Cannot reach <code>http://127.0.0.1:8000</code>
   </div>
 
   <!-- STAT GRID -->
   <div class="stat-grid">
-    <div class="stat-card sc-blue">
-      <div class="stat-label">Packets Captured</div>
-      <div class="stat-value v-blue" id="s-packets">0</div>
-      <div class="stat-sub" id="s-pps">0 pkt/s avg</div>
-    </div>
-    <div class="stat-card sc-teal">
-      <div class="stat-label">Alerts Total</div>
-      <div class="stat-value v-teal" id="s-alerts">0</div>
-      <div class="stat-sub" id="s-stored">0 stored</div>
-    </div>
-    <div class="stat-card sc-red">
-      <div class="stat-label">Critical</div>
-      <div class="stat-value v-red" id="s-critical">0</div>
-      <div class="stat-sub">severity: critical</div>
-    </div>
-    <div class="stat-card sc-amber">
-      <div class="stat-label">High Severity</div>
-      <div class="stat-value v-amber" id="s-high">0</div>
-      <div class="stat-sub">severity: high</div>
-    </div>
-    <div class="stat-card sc-purple">
-      <div class="stat-label">Scans Detected</div>
-      <div class="stat-value v-purple" id="s-scans">0</div>
-      <div class="stat-sub">port/stealth scans</div>
-    </div>
-    <div class="stat-card sc-blue">
-      <div class="stat-label">ML Detections</div>
-      <div class="stat-value v-blue" id="s-ml">0</div>
-      <div class="stat-sub" id="s-ml-status">model: checking</div>
-    </div>
-    <div class="stat-card sc-teal">
-      <div class="stat-label">Unique Attackers</div>
-      <div class="stat-value v-teal" id="s-unique-ips">0</div>
-      <div class="stat-sub">source IPs</div>
-    </div>
-    <div class="stat-card sc-green">
-      <div class="stat-label">Alert Rate</div>
-      <div class="stat-value v-green sm" id="s-alert-rate">0/min</div>
-      <div class="stat-sub" id="s-det-rate">det. rate: 0%</div>
-    </div>
+    <div class="stat-card sc-blue"><div class="stat-label">Packets Captured</div><div class="stat-value v-blue" id="s-packets">0</div><div class="stat-sub" id="s-pps">0 pkt/s avg</div></div>
+    <div class="stat-card sc-teal"><div class="stat-label">Alerts Total</div><div class="stat-value v-teal" id="s-alerts">0</div><div class="stat-sub" id="s-stored">0 stored</div></div>
+    <div class="stat-card sc-red"><div class="stat-label">Critical</div><div class="stat-value v-red" id="s-critical">0</div><div class="stat-sub">severity: critical</div></div>
+    <div class="stat-card sc-amber"><div class="stat-label">High Severity</div><div class="stat-value v-amber" id="s-high">0</div><div class="stat-sub">severity: high</div></div>
+    <div class="stat-card sc-purple"><div class="stat-label">Scans Detected</div><div class="stat-value v-purple" id="s-scans">0</div><div class="stat-sub">port/stealth scans</div></div>
+    <div class="stat-card sc-blue"><div class="stat-label">ML Detections</div><div class="stat-value v-blue" id="s-ml">0</div><div class="stat-sub" id="s-ml-status">model: checking</div></div>
+    <div class="stat-card sc-teal"><div class="stat-label">Unique Attackers</div><div class="stat-value v-teal" id="s-unique-ips">0</div><div class="stat-sub">source IPs</div></div>
+    <div class="stat-card sc-green"><div class="stat-label">Alert Rate</div><div class="stat-value v-green sm" id="s-alert-rate">0/min</div><div class="stat-sub" id="s-det-rate">det. rate: 0%</div></div>
   </div>
 
-  <!-- ROW: Timeline + Live Alerts -->
+  <!-- Timeline + Live Alerts -->
   <div class="row-2col">
-
     <div class="panel">
       <div class="panel-header">
         <span class="panel-title">
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2.5">
-            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
-          </svg>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
           Traffic Timeline (24H)
         </span>
-        <div class="panel-meta">
-          <span style="color:var(--green)">▬</span> normal
-          <span style="color:var(--amber)">▬</span> suspicious
-          <span style="color:var(--red)">▬</span> malicious
-        </div>
+        <div class="panel-meta"><span style="color:var(--green)">▬</span> normal <span style="color:var(--amber)">▬</span> suspicious <span style="color:var(--red)">▬</span> malicious</div>
       </div>
-      <div class="panel-body" style="padding:14px;">
-        <div class="chart-wrap-lg">
-          <canvas id="timelineChart"></canvas>
-        </div>
-      </div>
+      <div class="panel-body"><div class="chart-wrap-lg"><canvas id="timelineChart"></canvas></div></div>
     </div>
-
     <div class="panel">
       <div class="panel-header">
         <span class="panel-title">
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2.5">
-            <circle cx="12" cy="12" r="10"/>
-            <line x1="12" y1="8" x2="12" y2="12"/>
-            <line x1="12" y1="16" x2="12.01" y2="16"/>
-          </svg>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
           Live Alerts
         </span>
-        <div class="live-badge">
-          <div class="pulse-dot red"></div> LIVE
-        </div>
+        <div class="live-badge"><div class="pulse-dot red"></div> LIVE</div>
       </div>
-      <div class="panel-body" style="padding:8px;">
-        <div class="alerts-container" id="alerts-list">
-          <div class="no-alerts-msg">Connecting to backend…</div>
-        </div>
-      </div>
+      <div class="panel-body" style="padding:8px"><div class="alerts-container" id="alerts-list"><div class="no-alerts-msg">Authenticating…</div></div></div>
     </div>
-
   </div>
 
-  <!-- ROW: Donut + Top IPs + Ports -->
+  <!-- Distribution + Top IPs + Ports -->
   <div class="row-3col">
-
     <div class="panel">
-      <div class="panel-header">
-        <span class="panel-title">Attack Distribution</span>
-        <span class="panel-meta" id="donut-total-lbl">0 total</span>
-      </div>
+      <div class="panel-header"><span class="panel-title">Attack Distribution</span><span class="panel-meta" id="donut-total-lbl">0 total</span></div>
       <div class="panel-body">
         <div class="donut-wrap">
           <div class="donut-canvas-wrap">
             <canvas id="donutChart"></canvas>
-            <div class="donut-center">
-              <div class="donut-num" id="donut-total">0</div>
-              <div class="donut-lbl">Attacks</div>
-            </div>
+            <div class="donut-center"><div class="donut-num" id="donut-total">0</div><div class="donut-lbl">Attacks</div></div>
           </div>
           <div class="donut-legend">
             <div class="leg-row"><div class="leg-swatch" style="background:#ef4444"></div>DoS/DDoS<span class="leg-val" id="leg-dos">0</span></div>
@@ -1150,148 +385,87 @@ body::after {
         </div>
       </div>
     </div>
-
     <div class="panel">
-      <div class="panel-header">
-        <span class="panel-title">
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="2.5">
-            <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
-            <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-          </svg>
-          Top Attacking IPs
-        </span>
-        <span class="panel-meta" id="attacker-count">0 sources</span>
-      </div>
-      <div class="panel-body">
-        <div class="ip-list" id="ip-list">
-          <div class="no-alerts-msg">No data yet</div>
-        </div>
-      </div>
+      <div class="panel-header"><span class="panel-title">Top Attacking IPs</span><span class="panel-meta" id="attacker-count">0 sources</span></div>
+      <div class="panel-body"><div class="ip-list" id="ip-list"><div class="no-alerts-msg">No data yet</div></div></div>
     </div>
-
     <div class="panel">
       <div class="panel-header">
-        <span class="panel-title">
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--teal)" stroke-width="2.5">
-            <rect x="2" y="7" width="20" height="14" rx="2" ry="2"/>
-            <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>
-          </svg>
-          Targeted Ports
-        </span>
-        <div class="rate-grid" style="margin-left:auto;gap:6px;">
-          <div class="rate-card" style="padding:6px 10px;">
-            <div class="rate-num" style="font-size:16px;" id="rate-per-min">0</div>
-            <div class="rate-label">per min</div>
+        <span class="panel-title">Targeted Ports</span>
+        <div style="display:flex;gap:6px;margin-left:auto">
+          <div style="background:var(--card2);border:1px solid var(--border);border-radius:4px;padding:5px 10px;text-align:center">
+            <div style="font-family:var(--font-mono);font-size:15px;font-weight:600;color:var(--text-bright)" id="rate-per-min">0</div>
+            <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-dim);letter-spacing:1px">PER MIN</div>
           </div>
-          <div class="rate-card" style="padding:6px 10px;">
-            <div class="rate-num" style="font-size:16px;" id="rate-per-sec">0.0</div>
-            <div class="rate-label">per sec</div>
+          <div style="background:var(--card2);border:1px solid var(--border);border-radius:4px;padding:5px 10px;text-align:center">
+            <div style="font-family:var(--font-mono);font-size:15px;font-weight:600;color:var(--text-bright)" id="rate-per-sec">0.0</div>
+            <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-dim);letter-spacing:1px">PER SEC</div>
           </div>
         </div>
       </div>
-      <div class="panel-body">
-        <div class="port-list" id="port-list">
-          <div class="no-alerts-msg">No data yet</div>
-        </div>
-      </div>
+      <div class="panel-body"><div class="port-list" id="port-list"><div class="no-alerts-msg">No data yet</div></div></div>
     </div>
-
   </div>
 
-  <!-- ROW: Model Table + Features -->
+  <!-- Model + Features -->
   <div class="row-a">
-
     <div class="panel">
-      <div class="panel-header">
-        <span class="panel-title">Model Comparison</span>
-        <span class="panel-meta"><span class="active-pip"></span> Active: Isolation Forest</span>
-      </div>
-      <div class="panel-body" style="padding:0;">
+      <div class="panel-header"><span class="panel-title">Model Comparison</span><span class="panel-meta"><span class="active-pip"></span> Active: Random Forest</span></div>
+      <div class="panel-body" style="padding:0">
         <table class="model-tbl">
-          <thead>
-            <tr><th>Model</th><th>Acc</th><th>Prec</th><th>Recall</th><th>F1</th><th>AUC</th></tr>
-          </thead>
+          <thead><tr><th>Model</th><th>Acc</th><th>Prec</th><th>Recall</th><th>F1</th><th>AUC</th></tr></thead>
           <tbody>
-            <tr class="active-row">
-              <td><div class="tbl-active"><div class="active-pip"></div><span class="tbl-name">Isolation Forest</span></div></td>
-              <td><span class="v-green-s">94.2</span></td><td><span class="v-dim-s">91.8</span></td>
-              <td><span class="v-dim-s">89.3</span></td><td><span class="v-blue-s">90.5</span></td>
-              <td><span class="v-dim-s">93.1</span></td>
-            </tr>
-            <tr>
-              <td><span class="tbl-name">One-Class SVM</span></td>
-              <td><span class="v-green-s">91.7</span></td><td><span class="v-dim-s">88.4</span></td>
-              <td><span class="v-dim-s">86.1</span></td><td><span class="v-blue-s">87.2</span></td>
-              <td><span class="v-dim-s">90.3</span></td>
-            </tr>
-            <tr>
-              <td><span class="tbl-name">Random Forest</span></td>
-              <td><span class="v-green-s">97.3</span></td><td><span class="v-dim-s">96.1</span></td>
-              <td><span class="v-dim-s">93.5</span></td><td><span class="v-amber-s">94.8</span></td>
-              <td><span class="v-dim-s">97.8</span></td>
-            </tr>
-            <tr>
-              <td><span class="tbl-name">Autoencoder</span></td>
-              <td><span class="v-green-s">95.8</span></td><td><span class="v-dim-s">93.2</span></td>
-              <td><span class="v-dim-s">92.7</span></td><td><span class="v-blue-s">92.9</span></td>
-              <td><span class="v-dim-s">95.4</span></td>
-            </tr>
+            <tr><td><div class="tbl-active"><div class="active-pip"></div><span class="tbl-name">Random Forest</span></div></td><td><span class="v-green-s">97.3</span></td><td><span class="v-dim-s">96.1</span></td><td><span class="v-dim-s">93.5</span></td><td><span class="v-amber-s">94.8</span></td><td><span class="v-dim-s">97.8</span></td></tr>
+            <tr><td><span class="tbl-name">Isolation Forest</span></td><td><span class="v-green-s">94.2</span></td><td><span class="v-dim-s">91.8</span></td><td><span class="v-dim-s">89.3</span></td><td><span class="v-blue-s">90.5</span></td><td><span class="v-dim-s">93.1</span></td></tr>
+            <tr><td><span class="tbl-name">One-Class SVM</span></td><td><span class="v-green-s">91.7</span></td><td><span class="v-dim-s">88.4</span></td><td><span class="v-dim-s">86.1</span></td><td><span class="v-blue-s">87.2</span></td><td><span class="v-dim-s">90.3</span></td></tr>
+            <tr><td><span class="tbl-name">Autoencoder</span></td><td><span class="v-green-s">95.8</span></td><td><span class="v-dim-s">93.2</span></td><td><span class="v-dim-s">92.7</span></td><td><span class="v-blue-s">92.9</span></td><td><span class="v-dim-s">95.4</span></td></tr>
           </tbody>
         </table>
       </div>
     </div>
-
     <div class="panel">
-      <div class="panel-header">
-        <span class="panel-title">Feature Importance</span>
-      </div>
-      <div class="panel-body">
-        <div class="feat-list" id="feat-list"></div>
-      </div>
+      <div class="panel-header"><span class="panel-title">Feature Importance</span></div>
+      <div class="panel-body"><div class="feat-list" id="feat-list"></div></div>
     </div>
-
   </div>
 
   <!-- CONTROLS -->
   <div class="panel">
-    <div class="panel-header">
-      <span class="panel-title">System Controls</span>
-      <span class="last-action" id="last-action">—</span>
-    </div>
+    <div class="panel-header"><span class="panel-title">System Controls</span><span class="last-action" id="last-action">—</span></div>
     <div class="panel-body">
       <div class="ctrl-row">
-        <button class="btn btn-blue" onclick="manualRefresh()">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/>
-          </svg>
-          Refresh
-        </button>
-        <button class="btn btn-teal" onclick="startSniffer()">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <polygon points="5 3 19 12 5 21 5 3"/>
-          </svg>
-          Start Sniffer
-        </button>
-        <button class="btn btn-red" onclick="stopSniffer()">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <rect x="6" y="6" width="12" height="12"/>
-          </svg>
-          Stop Sniffer
-        </button>
-        <button class="btn btn-amber" onclick="exportAlerts()">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
-            <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-          </svg>
-          Export CSV
-        </button>
-        <button class="btn btn-red" onclick="clearAlerts()">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <polyline points="3 6 5 6 21 6"/>
-            <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
-          </svg>
-          Clear Alerts
-        </button>
+        <button class="btn btn-blue" onclick="manualRefresh()">↺ Refresh</button>
+        <button class="btn btn-teal admin-only" onclick="startSniffer()">▶ Start Sniffer</button>
+        <button class="btn btn-red admin-only" onclick="stopSniffer()">■ Stop Sniffer</button>
+        <button class="btn btn-amber analyst-up" onclick="exportAlerts()">↓ Export CSV</button>
+        <button class="btn btn-red admin-only" onclick="clearAlerts()">🗑 Clear Alerts</button>
+        <button class="btn btn-purple admin-only" onclick="toggleUserPanel()">👤 Manage Users</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- USER MANAGEMENT (admin only, hidden by default) -->
+  <div class="panel" id="user-panel" style="display:none">
+    <div class="panel-header">
+      <span class="panel-title">👤 User Management</span>
+      <span class="panel-meta">Admin only</span>
+    </div>
+    <div class="panel-body">
+      <div class="user-form">
+        <input type="text" id="new-username" placeholder="Username" style="width:140px"/>
+        <input type="password" id="new-password" placeholder="Password (min 8)" style="width:160px"/>
+        <select id="new-role">
+          <option value="viewer">Viewer</option>
+          <option value="analyst">Analyst</option>
+          <option value="admin">Admin</option>
+        </select>
+        <button class="btn btn-green" onclick="createUser()">+ Add User</button>
+      </div>
+      <div style="margin-top:12px">
+        <table class="user-table">
+          <thead><tr><th>Username</th><th>Role</th><th>Created</th><th>Last Login</th><th>Actions</th></tr></thead>
+          <tbody id="user-table-body"><tr><td colspan="5" style="text-align:center;color:var(--text-dim);padding:16px">Loading...</td></tr></tbody>
+        </table>
       </div>
     </div>
   </div>
@@ -1304,15 +478,11 @@ body::after {
     <div class="modal-head">
       <div class="modal-head-left">
         <span class="modal-sev" id="m-sev">HIGH</span>
-        <div>
-          <div class="modal-title" id="m-title">Alert Detail</div>
-          <div class="modal-ts" id="m-ts">—</div>
-        </div>
+        <div><div class="modal-title" id="m-title">Alert Detail</div><div class="modal-ts" id="m-ts">—</div></div>
       </div>
       <button class="btn-close" onclick="closeModal()">✕ Close</button>
     </div>
     <div class="modal-body">
-
       <div>
         <div class="m-section-title">Threat Overview</div>
         <div class="m-info-grid">
@@ -1324,108 +494,81 @@ body::after {
           <div class="m-info-cell"><div class="m-info-lbl">Protocol</div><div class="m-info-val" id="m-proto">—</div></div>
         </div>
       </div>
-
-      <div>
-        <div class="m-section-title">Message</div>
-        <div class="m-msg-box" id="m-msg">—</div>
-      </div>
-
+      <div><div class="m-section-title">Message</div><div class="m-msg-box" id="m-msg">—</div></div>
       <div id="m-details-wrap">
         <div class="m-section-title">Additional Details</div>
         <pre class="m-details-pre" id="m-details">—</pre>
       </div>
-
       <div>
         <div class="m-section-title">Recommended Actions</div>
         <div class="m-actions">
-          <div class="m-action p-high">
-            <div style="flex:1">
-              <div class="m-action-name">Block Source IP</div>
-              <div class="m-action-desc">Add firewall rule to block <span id="m-act-src">this source</span> if the pattern continues.</div>
-            </div>
-            <span class="m-action-badge">HIGH</span>
-          </div>
-          <div class="m-action p-high">
-            <div style="flex:1">
-              <div class="m-action-name">Investigate Traffic Logs</div>
-              <div class="m-action-desc">Review system/auth logs for activity from this source IP around the alert timestamp.</div>
-            </div>
-            <span class="m-action-badge">HIGH</span>
-          </div>
-          <div class="m-action p-medium">
-            <div style="flex:1">
-              <div class="m-action-name">Update IDS Rules</div>
-              <div class="m-action-desc">Tune detection thresholds if this is a known source, or escalate if novel behavior.</div>
-            </div>
-            <span class="m-action-badge">MED</span>
-          </div>
-          <div class="m-action p-low">
-            <div style="flex:1">
-              <div class="m-action-name">Document Incident</div>
-              <div class="m-action-desc">Log alert details for audit trail, compliance, and future threat intelligence.</div>
-            </div>
-            <span class="m-action-badge">LOW</span>
-          </div>
+          <div class="m-action p-high"><div style="flex:1"><div class="m-action-name">Block Source IP</div><div class="m-action-desc">Add firewall rule to block <span id="m-act-src">this source</span> if pattern continues.</div></div><span class="m-action-badge">HIGH</span></div>
+          <div class="m-action p-high"><div style="flex:1"><div class="m-action-name">Investigate Traffic Logs</div><div class="m-action-desc">Review system/auth logs for activity from this source IP around the alert timestamp.</div></div><span class="m-action-badge">HIGH</span></div>
+          <div class="m-action p-medium"><div style="flex:1"><div class="m-action-name">Update IDS Rules</div><div class="m-action-desc">Tune detection thresholds if known source, or escalate if novel behavior.</div></div><span class="m-action-badge">MED</span></div>
+          <div class="m-action p-low"><div style="flex:1"><div class="m-action-name">Document Incident</div><div class="m-action-desc">Log alert details for audit trail, compliance, and future threat intelligence.</div></div><span class="m-action-badge">LOW</span></div>
         </div>
       </div>
-
     </div>
   </div>
 </div>
 
-<!-- TOAST -->
-<div class="toast" id="toast">
-  <div class="toast-title" id="toast-title">Info</div>
-  <div id="toast-msg">—</div>
-</div>
+<div class="toast" id="toast"><div class="toast-title" id="toast-title">Info</div><div id="toast-msg">—</div></div>
 
 <script>
-/* ═══════════════════════════════════════════════
+/* ═══════════════════════════════════════════
    CONFIG
-═══════════════════════════════════════════════ */
-const API = 'http://127.0.0.1:8000';
-const POLL_MS = 2000;
-const MAX_ALERTS_DISPLAY = 30;
-const DEDUP_WINDOW_MS = 60_000;
+═══════════════════════════════════════════ */
+const API       = 'http://127.0.0.1:8000';
+const POLL_MS   = 2000;
+const MAX_DISP  = 30;
+const DEDUP_MS  = 60_000;
 
-/* ═══════════════════════════════════════════════
-   STATE
-═══════════════════════════════════════════════ */
-let allAlerts = [];       // raw array from backend
+/* ═══════════════════════════════════════════
+   AUTH STATE
+═══════════════════════════════════════════ */
+let authToken   = null;
+let currentUser = null;
+let currentRole = null;
+
+/* ═══════════════════════════════════════════
+   DASHBOARD STATE
+═══════════════════════════════════════════ */
+let allAlerts    = [];
 let lastAlertIds = new Set();
 let currentStatus = {};
-let apiOnline = false;
-let tlChart = null;
-let donutChart = null;
-let selectedAlert = null;
-let startedAt = null;
+let apiOnline    = false;
+let tlChart      = null;
+let donutChart   = null;
+let pollIntervals = [];
 
-const PORT_NAMES = {
-  21:'FTP', 22:'SSH', 23:'Telnet', 25:'SMTP', 53:'DNS',
-  80:'HTTP', 110:'POP3', 123:'NTP', 143:'IMAP', 443:'HTTPS',
-  1900:'SSDP', 3306:'MySQL', 3389:'RDP', 5432:'PostgreSQL',
-  8080:'Alt-HTTP', 11211:'Memcached'
-};
+const PORT_NAMES = {21:'FTP',22:'SSH',23:'Telnet',25:'SMTP',53:'DNS',80:'HTTP',110:'POP3',
+  123:'NTP',143:'IMAP',443:'HTTPS',1900:'SSDP',3306:'MySQL',3389:'RDP',
+  5432:'PostgreSQL',8080:'Alt-HTTP',11211:'Memcached'};
 
 const FEATURES = [
-  {name:'Flow Duration', pct:97},
-  {name:'Byte Count', pct:91},
-  {name:'Failed Conns', pct:86},
-  {name:'TCP Flags', pct:82},
-  {name:'Packet Count', pct:78},
-  {name:'Inter-Arrival Time', pct:71},
-  {name:'Avg Packet Size', pct:65},
+  {name:'Flow Duration',pct:97},{name:'Byte Count',pct:91},
+  {name:'Failed Conns',pct:86},{name:'TCP Flags',pct:82},
+  {name:'Packet Count',pct:78},{name:'Inter-Arrival Time',pct:71},
+  {name:'Avg Packet Size',pct:65},
 ];
 
-/* ═══════════════════════════════════════════════
-   API HELPERS
-═══════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════
+   AUTH-AWARE FETCH
+═══════════════════════════════════════════ */
 async function apiFetch(path, opts = {}) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 4000);
+  const headers = { ...(opts.headers || {}) };
+  if (authToken && !path.startsWith('/auth/')) {
+    headers['Authorization'] = `Bearer ${authToken}`;
+  }
   try {
-    const r = await fetch(API + path, { ...opts, signal: ctrl.signal });
+    const r = await fetch(API + path, { ...opts, headers, signal: ctrl.signal });
     clearTimeout(timer);
+    if (r.status === 401 && !path.startsWith('/auth/login')) {
+      handleSessionExpired();
+      throw new Error('Session expired');
+    }
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     return await r.json();
   } catch (e) {
@@ -1434,715 +577,497 @@ async function apiFetch(path, opts = {}) {
   }
 }
 
-/* ═══════════════════════════════════════════════
-   POLL: STATUS
-═══════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════
+   LOGIN / LOGOUT
+═══════════════════════════════════════════ */
+async function doLogin() {
+  const username = el('login-user').value.trim();
+  const password = el('login-pass').value;
+  const errEl    = el('login-error');
+  const btn      = el('login-btn');
+  if (!username || !password) { errEl.textContent='Enter username and password.'; errEl.classList.remove('hidden'); return; }
+  btn.disabled = true; btn.textContent = 'AUTHENTICATING...'; errEl.classList.add('hidden');
+  try {
+    const data = await fetch(API+'/auth/login',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({username, password})
+    }).then(r => { if(!r.ok) throw new Error('Invalid credentials'); return r.json(); });
+    authToken   = data.token;
+    currentUser = data.username;
+    currentRole = data.role;
+    sessionStorage.setItem('nids_token', authToken);
+    sessionStorage.setItem('nids_user',  currentUser);
+    sessionStorage.setItem('nids_role',  currentRole);
+    onLoginSuccess();
+  } catch(e) {
+    errEl.textContent = 'Invalid username or password.';
+    errEl.classList.remove('hidden');
+  } finally {
+    btn.disabled=false; btn.textContent='AUTHENTICATE';
+  }
+}
+
+async function doLogout() {
+  try { await apiFetch('/auth/logout', {method:'POST'}); } catch(_) {}
+  authToken=null; currentUser=null; currentRole=null;
+  sessionStorage.clear();
+  allAlerts=[]; lastAlertIds=new Set();
+  pollIntervals.forEach(clearInterval); pollIntervals=[];
+  setApiOnline(false);
+  showLoginScreen();
+  toast('Logged out','Your session has ended.','warn');
+}
+
+function handleSessionExpired() {
+  authToken=null; currentUser=null; currentRole=null;
+  sessionStorage.clear();
+  pollIntervals.forEach(clearInterval); pollIntervals=[];
+  showLoginScreen();
+  toast('Session Expired','Please log in again.','warn');
+}
+
+async function checkExistingSession() {
+  const t = sessionStorage.getItem('nids_token');
+  const u = sessionStorage.getItem('nids_user');
+  const r = sessionStorage.getItem('nids_role');
+  if (!t) { showLoginScreen(); return; }
+  try {
+    const resp = await fetch(API+'/status', {headers:{'Authorization':'Bearer '+t}});
+    if (resp.ok) {
+      authToken=t; currentUser=u; currentRole=r;
+      onLoginSuccess();
+    } else { showLoginScreen(); }
+  } catch(_) { showLoginScreen(); }
+}
+
+function showLoginScreen() {
+  el('login-overlay').classList.remove('hidden');
+  el('session-chip').style.display='none';
+  el('login-user').value=''; el('login-pass').value='';
+  el('login-error').classList.add('hidden');
+}
+
+function onLoginSuccess() {
+  el('login-overlay').classList.add('hidden');
+  el('session-chip').style.display='flex';
+  el('session-user').textContent = currentUser;
+  const badge = el('role-badge');
+  badge.textContent = currentRole;
+  badge.className = `role-badge role-${currentRole}`;
+
+  // Apply RBAC to UI controls
+  applyRoleUI();
+
+  // Start polling
+  Promise.all([pollStatus(), pollAlerts()]);
+  pollIntervals.push(setInterval(pollAlerts,  POLL_MS));
+  pollIntervals.push(setInterval(pollStatus,  POLL_MS * 2));
+}
+
+function applyRoleUI() {
+  // admin-only: start/stop sniffer, clear alerts, manage users
+  const adminEls = document.querySelectorAll('.admin-only');
+  adminEls.forEach(e => e.style.display = currentRole==='admin' ? '' : 'none');
+
+  // analyst and above: export
+  const analystEls = document.querySelectorAll('.analyst-up');
+  analystEls.forEach(e => e.style.display =
+    (currentRole==='admin'||currentRole==='analyst') ? '' : 'none');
+}
+
+/* ═══════════════════════════════════════════
+   POLLING
+═══════════════════════════════════════════ */
 async function pollStatus() {
   try {
     const data = await apiFetch('/status');
     currentStatus = data;
     setApiOnline(true);
     applyStatus(data);
-  } catch {
-    setApiOnline(false);
-  }
+  } catch { setApiOnline(false); }
 }
 
-function applyStatus(d) {
-  const running = d.running;
-  const packets = d.packets_captured ?? 0;
-  const alertsGen = d.alerts_generated ?? 0;
-  const alertsStored = d.alerts_stored ?? 0;
-  const upSec = d.uptime_seconds ?? 0;
-  const iface = d.interface || '—';
-
-  // topbar pills
-  setText('tp-iface', iface);
-  setText('tp-sniffer', running ? 'Active' : 'Stopped');
-  el('tp-sniffer').style.color = running ? 'var(--green)' : 'var(--amber)';
-  setText('tp-uptime', fmtUptime(upSec));
-
-  // pps
-  const pps = upSec > 0 ? (packets / upSec).toFixed(1) : 0;
-  setText('tp-rate', pps + ' pkt/s');
-  setText('s-packets', fmtNum(packets));
-  setText('s-pps', pps + ' pkt/s avg');
-  setText('s-alerts', fmtNum(alertsGen));
-  setText('s-stored', alertsStored + ' stored');
-
-  // det rate
-  const dr = packets > 0 ? ((alertsGen / packets) * 100).toFixed(3) : '0.000';
-  setText('s-det-rate', 'det. rate: ' + dr + '%');
-}
-
-/* ═══════════════════════════════════════════════
-   POLL: ALERTS
-═══════════════════════════════════════════════ */
 async function pollAlerts() {
   try {
     const data = await apiFetch('/alerts?limit=200');
-    let alerts;
-
-    // Support both {alerts:[...]} and bare array
-    if (Array.isArray(data)) {
-      alerts = data;
-    } else if (Array.isArray(data.alerts)) {
-      alerts = data.alerts;
-    } else {
-      alerts = [];
-    }
-
-    // Reverse so newest first
+    let alerts = Array.isArray(data) ? data : (data.alerts || []);
     alerts = [...alerts].reverse();
 
-    // Check if changed (avoid unnecessary re-render)
-    const newIds = new Set(alerts.map(a => a.id));
-    const changed = alerts.length !== allAlerts.length ||
-      alerts.some(a => !lastAlertIds.has(a.id));
+    const firstLoad = lastAlertIds.size===0 && allAlerts.length===0;
+    const newIds = new Set(alerts.map(a=>a.id));
+    const changed = firstLoad || alerts.length!==allAlerts.length || alerts.some(a=>!lastAlertIds.has(a.id));
 
-    allAlerts = alerts;
-    lastAlertIds = newIds;
+    allAlerts=alerts; lastAlertIds=newIds;
 
     if (changed) {
-      renderAlerts();
-      updateStats();
-      updateDistribution();
-      updateTopIPs();
-      updateTopPorts();
-      updateTimeline();
-      updateAttackRate();
+      renderAlerts(); updateStats(); updateDistribution();
+      updateTopIPs(); updateTopPorts(); updateTimeline(); updateAttackRate();
     }
-
     setApiOnline(true);
-  } catch {
-    setApiOnline(false);
-  }
+  } catch { setApiOnline(false); }
 }
 
-/* ═══════════════════════════════════════════════
-   SET API STATUS
-═══════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════
+   STATUS
+═══════════════════════════════════════════ */
+function applyStatus(d) {
+  const packets=d.packets_captured??0, alertsGen=d.alerts_generated??0;
+  const upSec=d.uptime_seconds??0, iface=d.interface||'—';
+  setText('tp-iface',iface);
+  setText('tp-sniffer',d.running?'Active':'Stopped');
+  el('tp-sniffer').style.color=d.running?'var(--green)':'var(--amber)';
+  setText('tp-uptime',fmtUptime(upSec));
+  const pps=upSec>0?(packets/upSec).toFixed(1):0;
+  setText('tp-rate',pps+' pkt/s');
+  setText('s-packets',fmtNum(packets)); setText('s-pps',pps+' pkt/s avg');
+  setText('s-alerts',fmtNum(alertsGen)); setText('s-stored',(d.alerts_stored??0)+' stored');
+  const dr=packets>0?((alertsGen/packets)*100).toFixed(3):'0.000';
+  setText('s-det-rate','det. rate: '+dr+'%');
+}
+
 function setApiOnline(online) {
-  if (online === apiOnline) return;
-  apiOnline = online;
-
-  const chip = el('api-chip');
-  const banner = el('offline-banner');
-
+  if (online===apiOnline) return;
+  apiOnline=online;
+  const chip=el('api-chip'), banner=el('offline-banner');
   if (online) {
-    chip.textContent = 'API ONLINE';
-    chip.className = 'api-chip online';
+    chip.textContent='API ONLINE'; chip.className='api-chip online';
     banner.classList.add('hidden');
-    if (!startedAt) startedAt = Date.now();
   } else {
-    chip.textContent = 'API OFFLINE';
-    chip.className = 'api-chip offline';
+    chip.textContent='API OFFLINE'; chip.className='api-chip offline';
     banner.classList.remove('hidden');
-    setText('tp-sniffer', 'Offline');
-    el('tp-sniffer').style.color = 'var(--red)';
+    setText('tp-sniffer','Offline');
+    el('tp-sniffer').style.color='var(--red)';
   }
 }
 
-/* ═══════════════════════════════════════════════
-   UPDATE STATS FROM ALERTS
-═══════════════════════════════════════════════ */
-function updateStats() {
-  const crit = allAlerts.filter(a => a.severity === 'critical').length;
-  const high = allAlerts.filter(a => a.severity === 'high').length;
-  const scans = allAlerts.filter(a =>
-    a.type && (a.type.includes('Scan') || a.type.includes('scan'))
-  ).length;
-  const ml = allAlerts.filter(a => a.type === 'ML Anomaly').length;
-  const uniqueIPs = new Set(allAlerts.map(a => a.src).filter(Boolean)).size;
-
-  setText('s-critical', crit);
-  setText('s-high', high);
-  setText('s-scans', scans);
-  setText('s-ml', ml);
-  setText('s-unique-ips', uniqueIPs);
-  setText('attacker-count', uniqueIPs + ' sources');
-
-  // Model status from health (cached)
-  const mlStatus = ml > 0 ? 'active detections' : 'no detections';
-  setText('s-ml-status', 'model: ' + mlStatus);
-}
-
-/* ═══════════════════════════════════════════════
-   ATTACK RATE
-═══════════════════════════════════════════════ */
-function updateAttackRate() {
-  // Rate in last 60 seconds
-  const now = Date.now();
-  const recent = allAlerts.filter(a => {
-    const ts = parseAlertTs(a.timestamp);
-    return ts && (now - ts) < 60_000;
-  });
-  const perMin = recent.length;
-  const perSec = (perMin / 60).toFixed(1);
-  setText('rate-per-min', perMin);
-  setText('rate-per-sec', perSec);
-  setText('s-alert-rate', perMin + '/min');
-}
-
-function parseAlertTs(ts) {
-  if (!ts) return null;
-  try {
-    const d = new Date(ts);
-    if (!isNaN(d)) return d.getTime();
-    // HH:MM:SS format (today)
-    if (/^\d{2}:\d{2}:\d{2}$/.test(ts)) {
-      const today = new Date();
-      const [h,m,s] = ts.split(':').map(Number);
-      today.setHours(h, m, s, 0);
-      return today.getTime();
-    }
-  } catch {}
-  return null;
-}
-
-/* ═══════════════════════════════════════════════
-   RENDER ALERTS (deduplicated + grouped)
-═══════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════
+   RENDER ALERTS
+═══════════════════════════════════════════ */
 function renderAlerts() {
-  const container = el('alerts-list');
-  const display = allAlerts.slice(0, MAX_ALERTS_DISPLAY);
+  const container=el('alerts-list');
+  const display=allAlerts.slice(0,MAX_DISP);
+  if (!display.length) { container.innerHTML='<div class="no-alerts-msg">No alerts detected.</div>'; return; }
 
-  if (display.length === 0) {
-    container.innerHTML = '<div class="no-alerts-msg">No alerts detected.</div>';
-    return;
-  }
-
-  // Group similar alerts: same src + type within DEDUP_WINDOW_MS
-  const groups = [];
-  const seen = new Map(); // key -> group index
-
+  const groups=[], seen=new Map();
   for (const alert of display) {
-    const key = `${alert.src}||${alert.type}`;
-    const ts = parseAlertTs(alert.timestamp) || 0;
-    const existing = seen.get(key);
-
-    if (existing !== undefined) {
-      const grp = groups[existing];
-      const firstTs = parseAlertTs(grp.alerts[0].timestamp) || 0;
-      if (ts - firstTs < DEDUP_WINDOW_MS) {
-        grp.count++;
-        grp.alerts.push(alert);
-        // keep the latest alert's data as the representative
-        grp.rep = alert;
-        continue;
-      }
+    const key=`${alert.src}||${alert.type}`;
+    const ts=parseAlertTs(alert.timestamp)||0;
+    const existing=seen.get(key);
+    if (existing!==undefined) {
+      const grp=groups[existing];
+      if (ts-(parseAlertTs(grp.alerts[0].timestamp)||0)<DEDUP_MS) { grp.count++; grp.alerts.push(alert); grp.rep=alert; continue; }
     }
-
-    const idx = groups.length;
-    seen.set(key, idx);
-    groups.push({ rep: alert, count: 1, alerts: [alert] });
+    const idx=groups.length; seen.set(key,idx);
+    groups.push({rep:alert,count:1,alerts:[alert]});
   }
 
-  // Build fragment (avoid reflow on each append)
-  const frag = document.createDocumentFragment();
-
+  const frag=document.createDocumentFragment();
   for (const grp of groups) {
-    const a = grp.rep;
-    const sev = (a.severity || 'low').toLowerCase();
-    const tsDisplay = a.timestamp
-      ? (a.timestamp.length > 8 ? a.timestamp.split(' ')[1] || a.timestamp : a.timestamp)
-      : '—';
-
-    const div = document.createElement('div');
-    div.className = `alert-item sev-${sev}`;
-    div.addEventListener('click', () => openModal(a));
-
-    const tagClass = `tag-${sev}`;
-    const sevLabel = sev === 'critical' ? 'CRIT' : sev.toUpperCase();
-    const countBadge = grp.count > 1
-      ? `<span class="alert-count-badge">×${grp.count}</span>`
-      : '';
-
-    div.innerHTML = `
+    const a=grp.rep, sev=(a.severity||'low').toLowerCase();
+    const tsD=a.timestamp?(a.timestamp.length>8?a.timestamp.split(' ')[1]||a.timestamp:a.timestamp):'—';
+    const div=document.createElement('div');
+    div.className=`alert-item sev-${sev}`;
+    div.addEventListener('click',()=>openModal(a));
+    const sevLabel=sev==='critical'?'CRIT':sev.toUpperCase();
+    const badge=grp.count>1?`<span class="alert-count-badge">×${grp.count}</span>`:'';
+    div.innerHTML=`
       <div class="alert-sev-dot"></div>
       <div class="alert-body">
         <div class="alert-top">
-          <span class="sev-tag ${tagClass}">${sevLabel}</span>
-          <span class="alert-type-tag">${esc(a.type || 'Alert')}</span>
-          <span class="alert-ts">${esc(tsDisplay)}</span>
+          <span class="sev-tag tag-${sev}">${sevLabel}</span>
+          <span class="alert-type-tag">${esc(a.type||'Alert')}</span>
+          <span class="alert-ts">${esc(tsD)}</span>
         </div>
-        <div class="alert-msg">${esc(a.message || 'No message')}</div>
-        <div class="alert-src">SRC: ${esc(a.src || '—')}${a.dst ? ' → ' + esc(a.dst) : ''}</div>
-      </div>
-      ${countBadge}
-    `;
-
+        <div class="alert-msg">${esc(a.message||'No message')}</div>
+        <div class="alert-src">SRC: ${esc(a.src||'—')}${a.dst?' → '+esc(a.dst):''}</div>
+      </div>${badge}`;
     frag.appendChild(div);
   }
-
-  container.innerHTML = '';
-  container.appendChild(frag);
+  container.innerHTML=''; container.appendChild(frag);
 }
 
-/* ═══════════════════════════════════════════════
-   ATTACK DISTRIBUTION (DONUT)
-═══════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════
+   STATS / CHARTS
+═══════════════════════════════════════════ */
+function updateStats() {
+  const crit=allAlerts.filter(a=>a.severity==='critical').length;
+  const high=allAlerts.filter(a=>a.severity==='high').length;
+  const scans=allAlerts.filter(a=>a.type&&(a.type.includes('Scan')||a.type.includes('scan'))).length;
+  const ml=allAlerts.filter(a=>a.type==='ML Anomaly').length;
+  const uips=new Set(allAlerts.map(a=>a.src).filter(Boolean)).size;
+  setText('s-critical',crit); setText('s-high',high);
+  setText('s-scans',scans); setText('s-ml',ml); setText('s-unique-ips',uips);
+  setText('attacker-count',uips+' sources');
+  setText('s-ml-status',ml>0?'active detections':'no detections');
+}
+
+function updateAttackRate() {
+  const now=Date.now();
+  const recent=allAlerts.filter(a=>{const ts=parseAlertTs(a.timestamp);return ts&&(now-ts)<60000;});
+  setText('rate-per-min',recent.length);
+  setText('rate-per-sec',(recent.length/60).toFixed(1));
+  setText('s-alert-rate',recent.length+'/min');
+}
+
 function updateDistribution() {
-  const cats = { dos:0, recon:0, brute:0, ml:0, chain:0, other:0 };
-
+  const c={dos:0,recon:0,brute:0,ml:0,chain:0,other:0};
   for (const a of allAlerts) {
-    const t = (a.type || '').toLowerCase();
-    if (t.includes('ddos') || t.includes('dos') || t.includes('syn flood') || t.includes('udp amp')) cats.dos++;
-    else if (t.includes('scan') || t.includes('recon')) cats.recon++;
-    else if (t.includes('brute') || t.includes('force')) cats.brute++;
-    else if (t.includes('ml') || t.includes('anomaly')) cats.ml++;
-    else if (t.includes('chain') || t.includes('coordinated') || t.includes('multi')) cats.chain++;
-    else cats.other++;
+    const t=(a.type||'').toLowerCase();
+    if (t.includes('ddos')||t.includes('syn flood')||t.includes('udp amp')) c.dos++;
+    else if (t.includes('scan')||t.includes('recon')) c.recon++;
+    else if (t.includes('brute')||t.includes('force')) c.brute++;
+    else if (t.includes('ml')||t.includes('anomaly')) c.ml++;
+    else if (t.includes('chain')||t.includes('coordinated')||t.includes('multi')) c.chain++;
+    else c.other++;
   }
-
-  const total = Object.values(cats).reduce((a,b)=>a+b,0);
-  setText('donut-total', total);
-  setText('donut-total-lbl', total + ' total');
-  setText('leg-dos',   cats.dos);
-  setText('leg-recon', cats.recon);
-  setText('leg-brute', cats.brute);
-  setText('leg-ml',    cats.ml);
-  setText('leg-chain', cats.chain);
-  setText('leg-other', cats.other);
-
-  if (donutChart) {
-    donutChart.data.datasets[0].data = [
-      cats.dos, cats.recon, cats.brute, cats.ml, cats.chain, cats.other
-    ];
-    donutChart.update('none');
-  }
+  const total=Object.values(c).reduce((a,b)=>a+b,0);
+  setText('donut-total',total); setText('donut-total-lbl',total+' total');
+  setText('leg-dos',c.dos); setText('leg-recon',c.recon); setText('leg-brute',c.brute);
+  setText('leg-ml',c.ml); setText('leg-chain',c.chain); setText('leg-other',c.other);
+  if (donutChart) { donutChart.data.datasets[0].data=[c.dos,c.recon,c.brute,c.ml,c.chain,c.other]; donutChart.update('none'); }
 }
 
-/* ═══════════════════════════════════════════════
-   TOP ATTACKING IPs
-═══════════════════════════════════════════════ */
 function updateTopIPs() {
-  const counts = {};
-  for (const a of allAlerts) {
-    if (a.src) counts[a.src] = (counts[a.src] || 0) + 1;
-  }
-
-  const sorted = Object.entries(counts)
-    .sort((a,b) => b[1] - a[1])
-    .slice(0, 8);
-
-  const container = el('ip-list');
-
-  if (!sorted.length) {
-    container.innerHTML = '<div class="no-alerts-msg">No data yet</div>';
-    return;
-  }
-
-  const max = sorted[0][1];
-  const frag = document.createDocumentFragment();
-
-  sorted.forEach(([ip, cnt], i) => {
-    const pct = max > 0 ? Math.round((cnt/max)*100) : 0;
-    const div = document.createElement('div');
-    div.className = 'ip-row';
-    div.innerHTML = `
-      <span class="ip-rank">${i+1}</span>
-      <span class="ip-addr">${esc(ip)}</span>
-      <div class="ip-bar-wrap"><div class="ip-bar" style="width:${pct}%"></div></div>
-      <span class="ip-count">${cnt}</span>
-    `;
+  const counts={};
+  for (const a of allAlerts) if (a.src) counts[a.src]=(counts[a.src]||0)+1;
+  const sorted=Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  const container=el('ip-list');
+  if (!sorted.length) { container.innerHTML='<div class="no-alerts-msg">No data yet</div>'; return; }
+  const max=sorted[0][1], frag=document.createDocumentFragment();
+  sorted.forEach(([ip,cnt],i)=>{
+    const pct=max>0?Math.round((cnt/max)*100):0;
+    const div=document.createElement('div'); div.className='ip-row';
+    div.innerHTML=`<span class="ip-rank">${i+1}</span><span class="ip-addr">${esc(ip)}</span><div class="ip-bar-wrap"><div class="ip-bar" style="width:${pct}%"></div></div><span class="ip-count">${cnt}</span>`;
     frag.appendChild(div);
   });
-
-  container.innerHTML = '';
-  container.appendChild(frag);
+  container.innerHTML=''; container.appendChild(frag);
 }
 
-/* ═══════════════════════════════════════════════
-   TOP TARGETED PORTS
-═══════════════════════════════════════════════ */
 function updateTopPorts() {
-  const counts = {};
-  for (const a of allAlerts) {
-    // Try from details object
-    const port = a.details?.port || a.details?.dst_port;
-    if (port) counts[port] = (counts[port] || 0) + 1;
-  }
-
-  const sorted = Object.entries(counts)
-    .sort((a,b) => b[1] - a[1])
-    .slice(0, 6);
-
-  const container = el('port-list');
-
-  if (!sorted.length) {
-    container.innerHTML = '<div class="no-alerts-msg">No port data in alerts</div>';
-    return;
-  }
-
-  const max = sorted[0][1];
-  const frag = document.createDocumentFragment();
-
-  sorted.forEach(([port, cnt]) => {
-    const pct = max > 0 ? Math.round((cnt/max)*100) : 0;
-    const name = PORT_NAMES[parseInt(port)] || 'Unknown';
-    const div = document.createElement('div');
-    div.className = 'port-row';
-    div.innerHTML = `
-      <span class="port-num">${esc(String(port))}</span>
-      <span class="port-name">${name}</span>
-      <div class="port-bar-wrap"><div class="port-bar" style="width:${pct}%"></div></div>
-      <span class="port-count">${cnt}</span>
-    `;
+  const counts={};
+  for (const a of allAlerts) { const p=a.details?.port||a.details?.dst_port; if(p) counts[p]=(counts[p]||0)+1; }
+  const sorted=Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,6);
+  const container=el('port-list');
+  if (!sorted.length) { container.innerHTML='<div class="no-alerts-msg">No port data in alerts</div>'; return; }
+  const max=sorted[0][1], frag=document.createDocumentFragment();
+  sorted.forEach(([port,cnt])=>{
+    const pct=max>0?Math.round((cnt/max)*100):0;
+    const div=document.createElement('div'); div.className='port-row';
+    div.innerHTML=`<span class="port-num">${esc(String(port))}</span><span class="port-name">${PORT_NAMES[parseInt(port)]||'Unknown'}</span><div class="port-bar-wrap"><div class="port-bar" style="width:${pct}%"></div></div><span class="port-count">${cnt}</span>`;
     frag.appendChild(div);
   });
-
-  container.innerHTML = '';
-  container.appendChild(frag);
-}
-
-/* ═══════════════════════════════════════════════
-   TIMELINE CHART
-═══════════════════════════════════════════════ */
-function buildHourlyBuckets() {
-  const buckets = {
-    normal:     Array(24).fill(0),
-    suspicious: Array(24).fill(0),
-    malicious:  Array(24).fill(0),
-  };
-
-  for (const a of allAlerts) {
-    const ts = parseAlertTs(a.timestamp);
-    if (!ts) continue;
-    const hour = new Date(ts).getHours();
-    const sev = (a.severity || 'low').toLowerCase();
-    if (sev === 'critical' || sev === 'high') buckets.malicious[hour]++;
-    else if (sev === 'medium') buckets.suspicious[hour]++;
-    else buckets.normal[hour]++;
-  }
-  return buckets;
+  container.innerHTML=''; container.appendChild(frag);
 }
 
 function updateTimeline() {
   if (!tlChart) return;
-  const b = buildHourlyBuckets();
-  tlChart.data.datasets[0].data = b.normal;
-  tlChart.data.datasets[1].data = b.suspicious;
-  tlChart.data.datasets[2].data = b.malicious;
+  const b={normal:Array(24).fill(0),suspicious:Array(24).fill(0),malicious:Array(24).fill(0)};
+  for (const a of allAlerts) {
+    const ts=parseAlertTs(a.timestamp); if(!ts) continue;
+    const h=new Date(ts).getHours(), sev=(a.severity||'low').toLowerCase();
+    if (sev==='critical'||sev==='high') b.malicious[h]++;
+    else if (sev==='medium') b.suspicious[h]++;
+    else b.normal[h]++;
+  }
+  tlChart.data.datasets[0].data=b.normal;
+  tlChart.data.datasets[1].data=b.suspicious;
+  tlChart.data.datasets[2].data=b.malicious;
   tlChart.update('none');
 }
 
+/* ═══════════════════════════════════════════
+   CHART INIT
+═══════════════════════════════════════════ */
 function initTimeline() {
-  const hours = Array.from({length:24}, (_,i) => String(i).padStart(2,'0')+':00');
-  const ctx = document.getElementById('timelineChart').getContext('2d');
-
-  tlChart = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels: hours,
-      datasets: [
-        {
-          label: 'Normal',
-          data: Array(24).fill(0),
-          borderColor: '#22c55e',
-          backgroundColor: 'rgba(34,197,94,0.07)',
-          tension: 0.4, fill: true, borderWidth: 1.5,
-          pointRadius: 2, pointHoverRadius: 5,
-          pointBackgroundColor: '#22c55e',
-        },
-        {
-          label: 'Suspicious',
-          data: Array(24).fill(0),
-          borderColor: '#f59e0b',
-          backgroundColor: 'rgba(245,158,11,0.06)',
-          tension: 0.4, fill: true, borderWidth: 1.5,
-          pointRadius: 2, pointHoverRadius: 5,
-          pointBackgroundColor: '#f59e0b',
-        },
-        {
-          label: 'Malicious',
-          data: Array(24).fill(0),
-          borderColor: '#ef4444',
-          backgroundColor: 'rgba(239,68,68,0.06)',
-          tension: 0.4, fill: true, borderWidth: 1.5,
-          pointRadius: 2, pointHoverRadius: 5,
-          pointBackgroundColor: '#ef4444',
-        },
-      ]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
-      animation: { duration: 400 },
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          backgroundColor: '#0f1923',
-          borderColor: '#1e3048',
-          borderWidth: 1,
-          titleColor: '#f1f5f9',
-          bodyColor: '#94a3b8',
-          titleFont: { family: "'IBM Plex Mono', monospace", size: 11 },
-          bodyFont: { family: "'IBM Plex Mono', monospace", size: 11 },
-          padding: 10,
-        }
-      },
-      scales: {
-        x: {
-          grid: { color: 'rgba(30,48,72,0.6)', lineWidth: 1 },
-          ticks: {
-            color: '#475569',
-            font: { family: "'IBM Plex Mono', monospace", size: 9 },
-            maxTicksLimit: 12,
-          }
-        },
-        y: {
-          grid: { color: 'rgba(30,48,72,0.5)', lineWidth: 1 },
-          ticks: {
-            color: '#475569',
-            font: { family: "'IBM Plex Mono', monospace", size: 9 },
-            stepSize: 1,
-          },
-          beginAtZero: true,
-        }
-      }
-    }
-  });
+  const hours=Array.from({length:24},(_,i)=>String(i).padStart(2,'0')+':00');
+  const ctx=document.getElementById('timelineChart').getContext('2d');
+  const mono="'IBM Plex Mono', monospace";
+  tlChart=new Chart(ctx,{type:'line',data:{labels:hours,datasets:[
+    {label:'Normal',data:Array(24).fill(0),borderColor:'#22c55e',backgroundColor:'rgba(34,197,94,0.07)',tension:.4,fill:true,borderWidth:1.5,pointRadius:2,pointHoverRadius:5,pointBackgroundColor:'#22c55e'},
+    {label:'Suspicious',data:Array(24).fill(0),borderColor:'#f59e0b',backgroundColor:'rgba(245,158,11,0.06)',tension:.4,fill:true,borderWidth:1.5,pointRadius:2,pointHoverRadius:5,pointBackgroundColor:'#f59e0b'},
+    {label:'Malicious',data:Array(24).fill(0),borderColor:'#ef4444',backgroundColor:'rgba(239,68,68,0.06)',tension:.4,fill:true,borderWidth:1.5,pointRadius:2,pointHoverRadius:5,pointBackgroundColor:'#ef4444'},
+  ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},animation:{duration:400},plugins:{legend:{display:false},tooltip:{backgroundColor:'#0f1923',borderColor:'#1e3048',borderWidth:1,titleColor:'#f1f5f9',bodyColor:'#94a3b8',titleFont:{family:mono,size:11},bodyFont:{family:mono,size:11},padding:10}},scales:{x:{grid:{color:'rgba(30,48,72,0.6)'},ticks:{color:'#475569',font:{family:mono,size:9},maxTicksLimit:12}},y:{grid:{color:'rgba(30,48,72,0.5)'},ticks:{color:'#475569',font:{family:mono,size:9},stepSize:1},beginAtZero:true}}}});
 }
 
-/* ═══════════════════════════════════════════════
-   DONUT CHART
-═══════════════════════════════════════════════ */
 function initDonut() {
-  const ctx = document.getElementById('donutChart').getContext('2d');
-  donutChart = new Chart(ctx, {
-    type: 'doughnut',
-    data: {
-      labels: ['DoS/DDoS','Recon','Brute Force','ML Anomaly','Chain/Multi','Other'],
-      datasets: [{
-        data: [0,0,0,0,0,0],
-        backgroundColor: ['#ef4444','#f59e0b','#a78bfa','#2dd4bf','#3b82f6','#475569'],
-        borderColor: '#131d28',
-        borderWidth: 3,
-        hoverOffset: 5,
-      }]
-    },
-    options: {
-      cutout: '70%',
-      responsive: true,
-      maintainAspectRatio: true,
-      animation: { duration: 400 },
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          backgroundColor: '#0f1923',
-          borderColor: '#1e3048',
-          borderWidth: 1,
-          titleColor: '#f1f5f9',
-          bodyColor: '#94a3b8',
-          titleFont: { family: "'IBM Plex Mono', monospace", size: 11 },
-          bodyFont: { family: "'IBM Plex Mono', monospace", size: 11 },
-        }
-      }
-    }
-  });
+  const ctx=document.getElementById('donutChart').getContext('2d');
+  const mono="'IBM Plex Mono', monospace";
+  donutChart=new Chart(ctx,{type:'doughnut',data:{labels:['DoS/DDoS','Recon','Brute Force','ML Anomaly','Chain/Multi','Other'],datasets:[{data:[0,0,0,0,0,0],backgroundColor:['#ef4444','#f59e0b','#a78bfa','#2dd4bf','#3b82f6','#475569'],borderColor:'#131d28',borderWidth:3,hoverOffset:5}]},options:{cutout:'70%',responsive:true,maintainAspectRatio:true,animation:{duration:400},plugins:{legend:{display:false},tooltip:{backgroundColor:'#0f1923',borderColor:'#1e3048',borderWidth:1,titleColor:'#f1f5f9',bodyColor:'#94a3b8',titleFont:{family:mono,size:11},bodyFont:{family:mono,size:11}}}}});
 }
 
-/* ═══════════════════════════════════════════════
-   FEATURE IMPORTANCE
-═══════════════════════════════════════════════ */
 function renderFeatures() {
-  const container = el('feat-list');
-  container.innerHTML = FEATURES.map(f => `
+  el('feat-list').innerHTML=FEATURES.map(f=>`
     <div class="feat-row">
       <span class="feat-lbl">${f.name}</span>
       <div class="feat-track"><div class="feat-fill" style="width:0%" data-pct="${f.pct}"></div></div>
       <span class="feat-pct">${f.pct}%</span>
-    </div>`
-  ).join('');
-
-  // Animate on next frame
-  requestAnimationFrame(() => {
-    document.querySelectorAll('.feat-fill').forEach(b => {
-      b.style.width = b.dataset.pct + '%';
-    });
+    </div>`).join('');
+  requestAnimationFrame(()=>{
+    document.querySelectorAll('.feat-fill').forEach(b=>b.style.width=b.dataset.pct+'%');
   });
 }
 
-/* ═══════════════════════════════════════════════
-   MODAL
-═══════════════════════════════════════════════ */
-function openModal(alert) {
-  selectedAlert = alert;
-  const sev = (alert.severity || 'low').toLowerCase();
+/* ═══════════════════════════════════════════
+   USER MANAGEMENT
+═══════════════════════════════════════════ */
+let userPanelOpen = false;
 
-  el('m-sev').textContent = alert.severity ? alert.severity.toUpperCase() : '—';
-  el('m-sev').className = 'modal-sev ' + sev;
-  el('m-title').textContent = alert.type || 'Alert Detail';
-  el('m-ts').textContent = alert.timestamp || '—';
-
-  el('m-id').textContent = alert.id || '—';
-  el('m-type').textContent = alert.type || '—';
-  el('m-severity').textContent = (alert.severity || '—').toUpperCase();
-  el('m-src').textContent = alert.src || '—';
-  el('m-dst').textContent = alert.dst || '—';
-  el('m-proto').textContent = alert.protocol || '—';
-  el('m-msg').textContent = alert.message || 'No message';
-  el('m-act-src').textContent = alert.src || 'this source';
-
-  if (alert.details && Object.keys(alert.details).length > 0) {
-    el('m-details-wrap').style.display = '';
-    el('m-details').textContent = JSON.stringify(alert.details, null, 2);
-  } else {
-    el('m-details-wrap').style.display = 'none';
-  }
-
-  el('modal').classList.add('open');
-  document.body.style.overflow = 'hidden';
+async function toggleUserPanel() {
+  userPanelOpen = !userPanelOpen;
+  el('user-panel').style.display = userPanelOpen ? '' : 'none';
+  if (userPanelOpen) await loadUsers();
 }
 
-function closeModal() {
-  el('modal').classList.remove('open');
-  document.body.style.overflow = '';
-}
-
-function handleModalClick(e) {
-  if (e.target.id === 'modal') closeModal();
-}
-
-/* ═══════════════════════════════════════════════
-   CONTROLS
-═══════════════════════════════════════════════ */
-async function startSniffer() {
+async function loadUsers() {
   try {
-    await apiFetch('/control/start', { method: 'POST' });
-    toast('Sniffer Started', 'Packet capture is now active.', 'ok');
-    setLastAction('Sniffer started');
-    await pollStatus();
-  } catch (e) {
-    toast('Error', e.message || 'Failed to start sniffer', 'error');
+    const users = await apiFetch('/users');
+    const tbody = el('user-table-body');
+    if (!users.length) { tbody.innerHTML='<tr><td colspan="5" style="text-align:center;color:var(--text-dim);padding:16px">No users found.</td></tr>'; return; }
+    tbody.innerHTML = users.map(u => `
+      <tr>
+        <td style="color:var(--text-bright)">${esc(u.username)}</td>
+        <td><span class="role-badge role-${u.role}">${u.role}</span></td>
+        <td style="color:var(--text-dim)">${(u.created_at||'').slice(0,10)}</td>
+        <td style="color:var(--text-dim)">${u.last_login?(u.last_login||'').slice(0,16):'Never'}</td>
+        <td style="display:flex;gap:6px">
+          <select onchange="changeRole('${esc(u.username)}',this.value)" style="background:var(--card2);border:1px solid var(--border2);border-radius:3px;padding:3px 6px;font-family:var(--font-mono);font-size:10px;color:var(--text)">
+            <option value="viewer" ${u.role==='viewer'?'selected':''}>Viewer</option>
+            <option value="analyst" ${u.role==='analyst'?'selected':''}>Analyst</option>
+            <option value="admin" ${u.role==='admin'?'selected':''}>Admin</option>
+          </select>
+          ${u.username!==currentUser?`<button class="btn btn-red" style="padding:3px 8px;font-size:9px" onclick="deleteUser('${esc(u.username)}')">Delete</button>`:'<span style="font-family:var(--font-mono);font-size:10px;color:var(--text-dim)">(you)</span>'}
+        </td>
+      </tr>`).join('');
+  } catch(e) {
+    toast('Error','Failed to load users: '+e.message,'error');
   }
+}
+
+async function createUser() {
+  const username=el('new-username').value.trim();
+  const password=el('new-password').value;
+  const role=el('new-role').value;
+  if (!username||!password) { toast('Error','Username and password required.','error'); return; }
+  try {
+    await apiFetch('/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password,role})});
+    el('new-username').value=''; el('new-password').value='';
+    toast('User Created',`${username} (${role}) created.`,'ok');
+    await loadUsers();
+  } catch(e) { toast('Error',e.message,'error'); }
+}
+
+async function deleteUser(username) {
+  if (!confirm(`Delete user "${username}"? This cannot be undone.`)) return;
+  try {
+    await apiFetch(`/users/${username}`,{method:'DELETE'});
+    toast('Deleted',`User ${username} removed.`,'ok');
+    await loadUsers();
+  } catch(e) { toast('Error',e.message,'error'); }
+}
+
+async function changeRole(username, role) {
+  try {
+    await apiFetch(`/users/${username}/role`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({role})});
+    toast('Role Updated',`${username} → ${role}`,'ok');
+    await loadUsers();
+  } catch(e) { toast('Error',e.message,'error'); }
+}
+
+/* ═══════════════════════════════════════════
+   CONTROLS
+═══════════════════════════════════════════ */
+async function startSniffer() {
+  try { await apiFetch('/control/start',{method:'POST'}); toast('Sniffer Started','Capture active.','ok'); setLastAction('Sniffer started'); await pollStatus(); }
+  catch(e) { toast('Error',e.message||'Failed','error'); }
 }
 
 async function stopSniffer() {
-  try {
-    await apiFetch('/control/stop', { method: 'POST' });
-    toast('Sniffer Stopped', 'Packet capture has been paused.', 'warn');
-    setLastAction('Sniffer stopped');
-    await pollStatus();
-  } catch (e) {
-    toast('Error', e.message || 'Failed to stop sniffer', 'error');
-  }
+  try { await apiFetch('/control/stop',{method:'POST'}); toast('Sniffer Stopped','Capture paused.','warn'); setLastAction('Sniffer stopped'); await pollStatus(); }
+  catch(e) { toast('Error',e.message||'Failed','error'); }
 }
 
 async function clearAlerts() {
   try {
-    await apiFetch('/alerts', { method: 'DELETE' });
-    allAlerts = [];
-    lastAlertIds = new Set();
-    renderAlerts();
-    updateStats();
-    updateDistribution();
-    updateTopIPs();
-    updateTopPorts();
-    updateTimeline();
-    toast('Alerts Cleared', 'All alerts removed from backend.', 'ok');
-    setLastAction('Alerts cleared');
-  } catch {
-    // Backend may not support DELETE /alerts — clear local only
-    allAlerts = [];
-    lastAlertIds = new Set();
-    renderAlerts();
-    updateStats();
-    updateDistribution();
-    updateTopIPs();
-    updateTopPorts();
-    updateTimeline();
-    toast('Cleared Locally', 'Frontend cleared (backend may not support DELETE).', 'warn');
-    setLastAction('Cleared locally');
-  }
+    await apiFetch('/alerts',{method:'DELETE'});
+    allAlerts=[]; lastAlertIds=new Set();
+    renderAlerts(); updateStats(); updateDistribution(); updateTopIPs(); updateTopPorts(); updateTimeline();
+    toast('Cleared','All alerts removed.','ok'); setLastAction('Alerts cleared');
+  } catch(e) { toast('Error',e.message,'error'); }
 }
 
 function exportAlerts() {
-  if (!allAlerts.length) {
-    toast('No Data', 'Nothing to export.', 'warn');
-    return;
-  }
-  const rows = ['ID,Type,Severity,Source,Destination,Protocol,Message,Timestamp'];
-  allAlerts.forEach(a =>
-    rows.push([
-      a.id||'', a.type||'', a.severity||'',
-      a.src||'', a.dst||'', a.protocol||'',
-      `"${(a.message||'').replace(/"/g,'""')}"`,
-      a.timestamp||''
-    ].join(','))
-  );
-  const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
-  const url  = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `nids_alerts_${fmtDate()}.csv`;
-  link.click();
+  if (!allAlerts.length) { toast('No Data','Nothing to export.','warn'); return; }
+  const rows=['ID,Type,Severity,Source,Destination,Protocol,Message,Timestamp'];
+  allAlerts.forEach(a=>rows.push([a.id||'',a.type||'',a.severity||'',a.src||'',a.dst||'',a.protocol||'',`"${(a.message||'').replace(/"/g,'""')}"`,a.timestamp||''].join(',')));
+  const blob=new Blob([rows.join('\n')],{type:'text/csv'});
+  const url=URL.createObjectURL(blob);
+  const link=document.createElement('a'); link.href=url; link.download=`nids_alerts_${fmtDate()}.csv`; link.click();
   URL.revokeObjectURL(url);
-  toast('Exported', `${allAlerts.length} alerts saved to CSV.`, 'ok');
-  setLastAction('Exported ' + allAlerts.length + ' alerts');
+  toast('Exported',allAlerts.length+' alerts saved.','ok'); setLastAction('Exported '+allAlerts.length+' alerts');
 }
 
 async function manualRefresh() {
-  await Promise.all([pollStatus(), pollAlerts()]);
-  toast('Refreshed', 'Data updated.', 'ok');
-  setLastAction('Manual refresh');
+  await Promise.all([pollStatus(),pollAlerts()]);
+  toast('Refreshed','Data updated.','ok'); setLastAction('Manual refresh');
 }
 
-/* ═══════════════════════════════════════════════
+/* ═══════════════════════════════════════════
+   MODAL
+═══════════════════════════════════════════ */
+function openModal(alert) {
+  const sev=(alert.severity||'low').toLowerCase();
+  el('m-sev').textContent=(alert.severity||'—').toUpperCase();
+  el('m-sev').className='modal-sev '+sev;
+  el('m-title').textContent=alert.type||'Alert Detail';
+  el('m-ts').textContent=alert.timestamp||'—';
+  el('m-id').textContent=alert.id||'—';
+  el('m-type').textContent=alert.type||'—';
+  el('m-severity').textContent=(alert.severity||'—').toUpperCase();
+  el('m-src').textContent=alert.src||'—';
+  el('m-dst').textContent=alert.dst||'—';
+  el('m-proto').textContent=alert.protocol||'—';
+  el('m-msg').textContent=alert.message||'No message';
+  el('m-act-src').textContent=alert.src||'this source';
+  if (alert.details&&Object.keys(alert.details).length>0) {
+    el('m-details-wrap').style.display='';
+    el('m-details').textContent=JSON.stringify(alert.details,null,2);
+  } else { el('m-details-wrap').style.display='none'; }
+  el('modal').classList.add('open');
+  document.body.style.overflow='hidden';
+}
+function closeModal() { el('modal').classList.remove('open'); document.body.style.overflow=''; }
+function handleModalClick(e) { if(e.target.id==='modal') closeModal(); }
+
+/* ═══════════════════════════════════════════
    UTILS
-═══════════════════════════════════════════════ */
-function el(id) { return document.getElementById(id); }
-function setText(id, val) {
-  const e = el(id);
-  if (e && e.textContent !== String(val)) e.textContent = val;
-}
-function esc(s) {
-  return String(s)
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
-    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-function fmtNum(n) { return Number(n).toLocaleString(); }
-function fmtDate() { return new Date().toISOString().slice(0,10); }
-function fmtUptime(sec) {
-  if (sec < 60) return Math.floor(sec) + 's';
-  if (sec < 3600) return Math.floor(sec/60) + 'm ' + (Math.floor(sec)%60) + 's';
-  return Math.floor(sec/3600) + 'h ' + Math.floor((sec%3600)/60) + 'm';
+═══════════════════════════════════════════ */
+function el(id){return document.getElementById(id)}
+function setText(id,val){const e=el(id);if(e&&e.textContent!==String(val))e.textContent=val}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+function fmtNum(n){return Number(n).toLocaleString()}
+function fmtDate(){return new Date().toISOString().slice(0,10)}
+function fmtUptime(sec){if(sec<60)return Math.floor(sec)+'s';if(sec<3600)return Math.floor(sec/60)+'m '+Math.floor(sec)%60+'s';return Math.floor(sec/3600)+'h '+Math.floor((sec%3600)/60)+'m'}
+function parseAlertTs(ts){if(!ts)return null;try{const d=new Date(ts);if(!isNaN(d))return d.getTime();}catch{}return null}
+function setLastAction(msg){setText('last-action',msg+' — '+new Date().toLocaleTimeString())}
+function toast(title,msg,type=''){
+  const t=el('toast'); el('toast-title').textContent=title; el('toast-msg').textContent=msg;
+  t.className='toast t-'+type; t.classList.add('show');
+  clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'),4000);
 }
 
-function setLastAction(msg) {
-  setText('last-action', msg + ' — ' + new Date().toLocaleTimeString());
-}
-
-function toast(title, msg, type = '') {
-  const t = el('toast');
-  el('toast-title').textContent = title;
-  el('toast-msg').textContent = msg;
-  t.className = 'toast t-' + type;
-  t.classList.add('show');
-  clearTimeout(t._timer);
-  t._timer = setTimeout(() => t.classList.remove('show'), 4000);
-}
-
-/* ═══════════════════════════════════════════════
+/* ═══════════════════════════════════════════
    INIT
-═══════════════════════════════════════════════ */
+═══════════════════════════════════════════ */
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') closeModal();
+  if (e.key==='Enter' && !el('login-overlay').classList.contains('hidden')) doLogin();
+  if (e.key==='Escape') closeModal();
 });
 
 document.addEventListener('DOMContentLoaded', () => {
   initTimeline();
   initDonut();
   renderFeatures();
-
-  // Initial fetch
-  Promise.all([pollStatus(), pollAlerts()]);
-
-  // Polling
-  setInterval(pollAlerts, POLL_MS);
-  setInterval(pollStatus, POLL_MS * 2);
+  checkExistingSession();
 });
 </script>
 </body>
