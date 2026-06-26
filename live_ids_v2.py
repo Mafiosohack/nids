@@ -1,50 +1,70 @@
 """
 NIDS ML SENSOR — live_ids_v2.py
-Flow-based anomaly detection using a trained Random Forest model.
+Flow-based anomaly detection using the live-aligned Random Forest model.
 
 Responsibilities:
   - Capture packets on the network interface
-  - Build per-flow feature vectors (NSL-KDD style)
+  - Build per-flow feature vectors using ONLY packet-derivable features
+    (feature_engineering.live_features.LIVE_FEATURES) so the live vector
+    matches exactly what the model was trained on (see train_random_forest_v2.py)
   - Run ML inference on mature flows
   - POST alerts to main.py via /alert endpoint
 
 Run this ALONGSIDE main.py (separate process/terminal).
 main.py handles rule-based detection; this handles ML detection.
 
-Feature vector layout (matches NSL-KDD training schema):
-  Numeric  [38]:  duration, src_bytes, dst_bytes, land, wrong_fragment,
-                  urgent, hot, count, serror_rate, rerror_rate, ...
-  Categorical [3]: protocol_type, service, flag
-  → encoder.transform([[proto, service, flag]]) appended to numeric
+Feature alignment:
+  The model (models/rf_live.pkl) is trained on the live-computable subset of
+  NSL-KDD. The 10 numeric features in LIVE_NUMERIC_FEATURES are computed per
+  flow below; the 3 categorical features (protocol_type, service, flag) are
+  one-hot encoded by models/rf_live_encoder.pkl. Train and serve use the same
+  ordered feature list, so there is no distribution mismatch.
 """
 
-import time
+import json
+import sys
 import threading
-from collections import defaultdict
+import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import requests
 
+# Make project packages importable when run directly from the repo root.
+ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(ROOT))
+
+from feature_engineering.live_features import (
+    LIVE_NUMERIC_FEATURES,
+    LIVE_CATEGORICAL_FEATURES,
+    LIVE_MODEL_PATH,
+    LIVE_ENCODER_PATH,
+    LIVE_FEATURE_META_PATH,
+)
+
 try:
     import joblib
-    JOBLIB_AVAILABLE = True
 except ImportError:
     raise SystemExit("[FATAL] joblib not installed. Run: pip install joblib")
 
+# Scapy is only needed for live capture. Keep the import graceful so this module
+# can be imported for offline testing / on hosts without a capture stack.
 try:
     from scapy.all import IP, TCP, UDP, sniff
     SCAPY_AVAILABLE = True
 except ImportError:
-    raise SystemExit("[FATAL] scapy not installed. Run: pip install scapy")
+    SCAPY_AVAILABLE = False
+    IP = TCP = UDP = None  # type: ignore
 
 # ─────────────────────────────────────────────
 #  CONFIG
 # ─────────────────────────────────────────────
 NETWORK_INTERFACE   = "ens37"
-MODEL_PATH          = "models/random_forest_v2.pkl"
-ENCODER_PATH        = "models/rf_encoder_v2.pkl"
+MODEL_PATH          = str(ROOT / LIVE_MODEL_PATH)
+ENCODER_PATH        = str(ROOT / LIVE_ENCODER_PATH)
+META_PATH           = str(ROOT / LIVE_FEATURE_META_PATH)
 NIDS_ALERT_URL      = "http://127.0.0.1:8000/alert"
 ALERT_TIMEOUT_SEC   = 2         # HTTP POST timeout
 
@@ -55,14 +75,23 @@ FLOW_MIN_PACKETS    = 5         # minimum packets before running inference
 FLOW_MAX_AGE_SEC    = 120       # expire flows older than this (prevents memory leak)
 FLOW_CLEANUP_INTERVAL = 30      # how often the cleanup thread runs
 
-# Labels that the model considers "normal" — covers int and string variants
+HIGH_CONFIDENCE     = 0.80      # attack probability above this → severity "high"
+
+# Labels the model considers "normal" (the live-aligned model emits "normal"/"attack").
 NORMAL_LABELS = {"normal", "benign", "0", 0, "legitimate"}
+
+# ── Runtime mode (set by main() based on CLI args) ──
+# Live capture infers inline as flows mature and POSTs alerts to main.py.
+# PCAP replay evaluates each complete flow once at the end and, by default,
+# prints a report instead of POSTing (so it runs standalone without main.py).
+MIN_PACKETS       = FLOW_MIN_PACKETS
+INLINE_INFERENCE  = True
+SEND_ALERTS       = True
+
 
 # ─────────────────────────────────────────────
 #  PORT → SERVICE MAPPING  (NSL-KDD style)
 # ─────────────────────────────────────────────
-# Maps destination port → service string used during training.
-# Extend this if your model was trained with additional service labels.
 PORT_SERVICE_MAP: Dict[int, str] = {
     20:   "ftp_data",
     21:   "ftp",
@@ -70,7 +99,7 @@ PORT_SERVICE_MAP: Dict[int, str] = {
     23:   "telnet",
     25:   "smtp",
     53:   "domain",
-    67:   "domain_u",    # DHCP uses UDP; treat as domain_u
+    67:   "domain_u",
     68:   "domain_u",
     80:   "http",
     110:  "pop_3",
@@ -110,12 +139,10 @@ def port_to_service(port: int, proto: str) -> str:
         return "eco_i"
     return PORT_SERVICE_MAP.get(port, "other")
 
+
 # ─────────────────────────────────────────────
 #  TCP FLAGS → KDD FLAG  (connection state)
 # ─────────────────────────────────────────────
-# KDD flag represents the *final* state of a TCP connection.
-# We derive it from what flags were observed in the flow.
-
 def derive_kdd_flag(
     seen_syn: bool,
     seen_syn_ack: bool,
@@ -123,15 +150,14 @@ def derive_kdd_flag(
     seen_rst_src: bool,
     seen_rst_dst: bool,
 ) -> str:
-    """
-    Map observed TCP flags to an NSL-KDD connection flag.
+    """Map observed TCP flags to an NSL-KDD connection flag.
 
-    SF  : Normal establish + termination (SYN, SYN-ACK, FIN both sides)
+    SF  : Normal establish + termination (SYN, SYN-ACK, FIN)
     S0  : SYN only — no response at all
     S1  : SYN + SYN-ACK, but no FIN/RST yet (still open)
-    REJ : Connection rejected (RST received without prior SYN-ACK)
-    RSTO: Connection established, then RST from originator
-    RSTR: Connection established, then RST from responder
+    REJ : Connection rejected (RST from responder, no prior SYN-ACK)
+    RSTO: Established, then RST from originator
+    RSTR: Established, then RST from responder
     OTH : None of the above
     """
     if seen_fin and seen_syn_ack:
@@ -148,46 +174,70 @@ def derive_kdd_flag(
         return "S0"
     return "OTH"
 
+
 # ─────────────────────────────────────────────
-#  FLOW RECORD
+#  FLOW RECORD  (bidirectional)
 # ─────────────────────────────────────────────
 @dataclass
 class Flow:
-    src: str
-    dst: str
+    """A bidirectional flow between two endpoints.
+
+    Endpoints are stored canonically (ip_a <= ip_b) so traffic in both
+    directions maps to a single Flow. `initiator` is the IP we treat as the
+    connection source (first packet seen, ideally the SYN sender), which lets
+    us attribute src_bytes vs dst_bytes and originator vs responder RSTs.
+    """
+    ip_a: str
+    ip_b: str
     proto: str
     dst_port: int
+    initiator: str
     start_time: float = field(default_factory=time.time)
 
-    # Byte counters
-    src_bytes: int = 0
-    dst_bytes: int = 0
+    src_bytes: int = 0       # initiator → responder
+    dst_bytes: int = 0       # responder → initiator
+    count: int = 0           # packets observed in the flow
 
-    # Packet count
-    count: int = 0
+    first_ts: Optional[float] = None   # first packet timestamp (drives duration)
+    last_ts:  Optional[float] = None   # most recent packet timestamp
 
-    # TCP state flags (tracked across packets)
-    seen_syn:     bool = False
-    seen_syn_ack: bool = False
+    seen_syn:     bool = False   # initiator SYN (no ACK)
+    seen_syn_ack: bool = False   # responder SYN-ACK
     seen_fin:     bool = False
-    seen_rst_src: bool = False
-    seen_rst_dst: bool = False
+    seen_rst_src: bool = False   # RST from initiator
+    seen_rst_dst: bool = False   # RST from responder
 
-    # Error counters (for rate features)
-    syn_errors: int = 0   # S0-type: SYN with no response
-    rej_errors: int = 0   # REJ-type: RST without prior connection
-
-    # Set to True once inference has run on this flow
     inferenced: bool = False
 
     @property
+    def src(self) -> str:
+        return self.initiator
+
+    @property
+    def dst(self) -> str:
+        return self.ip_b if self.initiator == self.ip_a else self.ip_a
+
+    @property
     def duration(self) -> float:
-        return time.time() - self.start_time
+        """Flow duration from packet timestamps (works in both live and replay).
+
+        Using packet timestamps rather than wall-clock means a pcap replayed in
+        milliseconds still reports the flow's true on-the-wire duration.
+        """
+        if self.first_ts is None or self.last_ts is None:
+            return 0.0
+        return max(0.0, self.last_ts - self.first_ts)
+
+    def observe_time(self, ts: float):
+        """Record a packet timestamp for duration accounting."""
+        if self.first_ts is None:
+            self.first_ts = ts
+        self.last_ts = ts
 
     @property
     def land(self) -> int:
-        """1 if source and destination IP are the same (loopback attack indicator)."""
-        return int(self.src == self.dst)
+        """1 if source and destination IP are the same (LAND-attack indicator)."""
+        return int(self.ip_a == self.ip_b)
 
     @property
     def kdd_flag(self) -> str:
@@ -200,91 +250,79 @@ class Flow:
     def service(self) -> str:
         return port_to_service(self.dst_port, self.proto)
 
-    def update_tcp_flags(self, flags: int, direction: str):
-        """Update connection state from a packet's TCP flags."""
+    def update_tcp_flags(self, flags: int, from_initiator: bool):
+        """Update connection state from a packet's TCP flags.
+
+        from_initiator: True if the packet was sent by the flow initiator.
+        """
         syn = bool(flags & 0x02)
         ack = bool(flags & 0x10)
         fin = bool(flags & 0x01)
         rst = bool(flags & 0x04)
 
         if syn and not ack:
-            self.seen_syn = True
+            self.seen_syn = True       # SYN typically from initiator
         if syn and ack:
-            self.seen_syn_ack = True
+            self.seen_syn_ack = True   # SYN-ACK from responder
         if fin:
             self.seen_fin = True
         if rst:
-            if direction == "src":
+            if from_initiator:
                 self.seen_rst_src = True
             else:
                 self.seen_rst_dst = True
-                if not self.seen_syn_ack:
-                    self.rej_errors += 1
 
     def build_feature_vector(self) -> np.ndarray:
+        """Emit the live-computable numeric features in LIVE_NUMERIC_FEATURES order.
+
+        Returns shape (1, len(LIVE_NUMERIC_FEATURES)).
+        serror/rerror are derived from the flow's final TCP state — the honest
+        live analogue of NSL-KDD's windowed error rates.
         """
-        Build a 38-element numeric feature array (NSL-KDD layout).
+        serror = 1.0 if (self.seen_syn and not self.seen_syn_ack) else 0.0
+        rerror = 1.0 if self.kdd_flag in ("REJ", "RSTO", "RSTR") else 0.0
 
-        Features we CAN compute from live packets are populated.
-        Features requiring application-layer inspection (hot, logged_in,
-        num_failed_logins, etc.) are zeroed — they weren't observable
-        from raw packets anyway.
-        """
-        total = max(self.count, 1)
-        numeric = np.zeros(38, dtype=np.float64)
+        values = {
+            "duration":        self.duration,
+            "src_bytes":       float(self.src_bytes),
+            "dst_bytes":       float(self.dst_bytes),
+            "land":            float(self.land),
+            "count":           float(self.count),
+            "srv_count":       float(self.count),   # service-count approximation
+            "serror_rate":     serror,
+            "srv_serror_rate": serror,
+            "rerror_rate":     rerror,
+            "srv_rerror_rate": rerror,
+        }
+        row = [values[name] for name in LIVE_NUMERIC_FEATURES]
+        return np.array([row], dtype=np.float64)
 
-        # ── Well-supported features ──────────────────
-        numeric[0]  = self.duration
-        numeric[1]  = self.src_bytes
-        numeric[2]  = self.dst_bytes
-        numeric[3]  = self.land
-        numeric[4]  = 0              # wrong_fragment (needs IP frag tracking)
-        numeric[5]  = 0              # urgent (TCP URG — extend if needed)
-
-        # ── Application-layer features (zeroed) ──────
-        # numeric[6]  = hot
-        # numeric[7]  = num_failed_logins
-        # numeric[8]  = logged_in
-        # numeric[9]  = num_compromised
-        # ... (10-18 are application layer, left as 0)
-
-        # ── Traffic / connection count features ──────
-        numeric[19] = self.count
-        numeric[20] = self.count     # srv_count approximation
-
-        # Error rates
-        numeric[21] = self.syn_errors / total   # serror_rate
-        numeric[22] = self.syn_errors / total   # srv_serror_rate (approx)
-        numeric[23] = self.rej_errors / total   # rerror_rate
-        numeric[24] = self.rej_errors / total   # srv_rerror_rate (approx)
-
-        # Service rate features (set to 1.0 since we're per-flow here)
-        numeric[25] = 1.0   # same_srv_rate
-        numeric[26] = 0.0   # diff_srv_rate
-
-        # ── dst_host_* features (28-37) ──────────────
-        # These require per-destination historical tracking.
-        # Set conservatively — zeros won't trigger false positives.
-        # If your model was trained to rely on these heavily, implement
-        # a destination-host sliding-window counter here.
-
-        return numeric.reshape(1, -1)
 
 # ─────────────────────────────────────────────
 #  FLOW TABLE
 # ─────────────────────────────────────────────
-FlowKey = Tuple[str, str, str]   # (src_ip, dst_ip, proto)
+FlowKey = Tuple[str, str, str]   # (ip_a, ip_b, proto) with ip_a <= ip_b
 
 flow_table: Dict[FlowKey, Flow] = {}
 flow_lock = threading.Lock()
 
 
+def _flow_key(src: str, dst: str, proto: str) -> FlowKey:
+    a, b = sorted((src, dst))
+    return (a, b, proto)
+
+
 def get_or_create_flow(src: str, dst: str, proto: str, dst_port: int) -> Flow:
-    key = (src, dst, proto)
+    key = _flow_key(src, dst, proto)
     with flow_lock:
-        if key not in flow_table:
-            flow_table[key] = Flow(src=src, dst=dst, proto=proto, dst_port=dst_port)
-        return flow_table[key]
+        flow = flow_table.get(key)
+        if flow is None:
+            flow = Flow(
+                ip_a=key[0], ip_b=key[1], proto=proto,
+                dst_port=dst_port, initiator=src,
+            )
+            flow_table[key] = flow
+        return flow
 
 
 def cleanup_expired_flows():
@@ -297,67 +335,118 @@ def cleanup_expired_flows():
             for k in expired:
                 del flow_table[k]
         if expired:
-            print(f"[CLEANUP] Removed {len(expired)} expired flows. Active: {len(flow_table)}")
+            print(f"[CLEANUP] Removed {len(expired)} expired flows. "
+                  f"Active: {len(flow_table)}")
+
 
 # ─────────────────────────────────────────────
 #  MODEL
 # ─────────────────────────────────────────────
-model   = None
+model = None
 encoder = None
+_attack_index = 1          # index of the "attack" class in model.classes_
+DECISION_THRESHOLD = 0.5   # overridden from model metadata in load_model()
+
 
 def load_model():
-    global model, encoder
-    print("[ML] Loading model and encoder...")
+    """Load the live-aligned model + encoder and validate feature alignment."""
+    global model, encoder, _attack_index, DECISION_THRESHOLD
+    print("[ML] Loading live-aligned model and encoder...")
     try:
-        model   = joblib.load(MODEL_PATH)
+        model = joblib.load(MODEL_PATH)
         encoder = joblib.load(ENCODER_PATH)
-        print("[ML] Model and encoder loaded successfully.")
     except FileNotFoundError as e:
-        raise SystemExit(f"[FATAL] Could not load model/encoder: {e}")
+        raise SystemExit(
+            f"[FATAL] Could not load model/encoder: {e}\n"
+            f"        Train it first:  python train_random_forest_v2.py"
+        )
     except Exception as e:
         raise SystemExit(f"[FATAL] Model load error: {e}")
 
+    # Resolve which class index corresponds to "attack" (1).
+    classes = list(getattr(model, "classes_", [0, 1]))
+    _attack_index = classes.index(1) if 1 in classes else len(classes) - 1
 
-def run_inference(flow: Flow) -> Optional[str]:
-    """
-    Build features, run model prediction, return label string.
-    Returns None on error.
-    """
+    # Validate that the feature width we will emit matches the model.
+    n_cat = sum(len(c) for c in encoder.categories_)
+    expected = len(LIVE_NUMERIC_FEATURES) + n_cat
+    n_in = getattr(model, "n_features_in_", expected)
+    if n_in != expected:
+        print(f"[ML][WARN] Feature width mismatch: model expects {n_in}, "
+              f"sensor emits {expected}. Retrain with train_random_forest_v2.py.")
+    else:
+        print(f"[ML] Feature alignment OK ({expected} features: "
+              f"{len(LIVE_NUMERIC_FEATURES)} numeric + {n_cat} one-hot).")
+
+    # Apply the tuned decision threshold and surface the model's honest score.
     try:
-        numeric    = flow.build_feature_vector()    # shape (1, 38)
-        cat_data   = np.array([[flow.proto, flow.service, flow.kdd_flag]])
-        cat_encoded = encoder.transform(cat_data)    # shape (1, N)
-        features   = np.hstack((numeric, cat_encoded))
+        with open(META_PATH) as f:
+            meta = json.load(f)
+        DECISION_THRESHOLD = float(meta.get("decision_threshold", 0.5))
+        print(f"[ML] Model KDDTest+ accuracy={meta.get('kddtest_accuracy'):.3f} "
+              f"F1(attack)={meta.get('kddtest_f1_attack'):.3f} "
+              f"FPR={meta.get('kddtest_fpr'):.3f}")
+        print(f"[ML] Decision threshold: {DECISION_THRESHOLD:.2f} "
+              f"(attack if p >= threshold)")
+    except (FileNotFoundError, TypeError, ValueError):
+        pass
 
-        raw_pred   = model.predict(features)[0]
+    print("[ML] Model and encoder loaded successfully.")
 
-        # Normalise label to lowercase string for consistent comparison
-        label = str(raw_pred).strip().lower()
+
+def run_inference(flow: Flow) -> Tuple[Optional[str], Optional[float]]:
+    """Build the live-aligned feature vector, predict, and return
+    (label, attack_probability). Returns (None, None) on error."""
+    try:
+        numeric = flow.build_feature_vector()                      # (1, N_num)
+        cat_values = {
+            "protocol_type": flow.proto,
+            "service":       flow.service,
+            "flag":          flow.kdd_flag,
+        }
+        cat_row = np.array([[cat_values[c] for c in LIVE_CATEGORICAL_FEATURES]])
+        cat_encoded = encoder.transform(cat_row)                   # (1, N_cat)
+        features = np.hstack([numeric, cat_encoded])
+
+        attack_prob = None
+        if hasattr(model, "predict_proba"):
+            attack_prob = float(model.predict_proba(features)[0][_attack_index])
+            is_attack = attack_prob >= DECISION_THRESHOLD
+        else:
+            is_attack = int(model.predict(features)[0]) == 1
+
+        label = "attack" if is_attack else "normal"
+        conf = f" p={attack_prob:.2f}" if attack_prob is not None else ""
         print(f"[ML] {flow.src} → {flow.dst} | proto={flow.proto} "
-              f"svc={flow.service} flag={flow.kdd_flag} | pred='{label}'")
-        return label
+              f"svc={flow.service} flag={flow.kdd_flag} | pred='{label}'{conf}")
+        return label, attack_prob
 
     except Exception as e:
         print(f"[ML] Inference error for flow {flow.src}→{flow.dst}: {e}")
-        return None
+        return None, None
+
 
 # ─────────────────────────────────────────────
 #  ALERT
 # ─────────────────────────────────────────────
-def send_alert(flow: Flow, label: str):
+def send_alert(flow: Flow, label: str, attack_prob: Optional[float]):
+    severity = "high" if (attack_prob is not None and attack_prob >= HIGH_CONFIDENCE) else "medium"
+    conf_txt = f"{attack_prob:.0%} confidence" if attack_prob is not None else "n/a"
+
     payload = {
         "src":        flow.src,
         "dst":        flow.dst,
         "proto":      flow.proto,
         "alert_type": "ML Anomaly",
-        "severity":   "high",
+        "severity":   severity,
         "message":    (
-            f"ML model flagged flow as '{label}': "
+            f"ML model flagged flow as '{label}' ({conf_txt}): "
             f"{flow.src} → {flow.dst} ({flow.proto}/{flow.service}), "
-            f"{flow.count} pkts, {flow.src_bytes} bytes"
+            f"{flow.count} pkts, {flow.src_bytes}↑/{flow.dst_bytes}↓ bytes"
         ),
         "details": {
             "predicted_label": label,
+            "attack_probability": round(attack_prob, 4) if attack_prob is not None else None,
             "service":         flow.service,
             "kdd_flag":        flow.kdd_flag,
             "duration":        round(flow.duration, 3),
@@ -366,7 +455,7 @@ def send_alert(flow: Flow, label: str):
             "packet_count":    flow.count,
         },
     }
-    print(f"[ALERT] Sending to NIDS: {payload['message']}")
+    print(f"[ALERT] Sending to NIDS [{severity}]: {payload['message']}")
     try:
         resp = requests.post(
             NIDS_ALERT_URL,
@@ -375,13 +464,32 @@ def send_alert(flow: Flow, label: str):
             headers={"X-Sensor-Key": SENSOR_API_KEY},
         )
         if resp.status_code == 200:
-            print(f"[ALERT] ✓ Accepted by NIDS (id={resp.json().get('alert_id')})")
+            print(f"[ALERT] OK Accepted by NIDS (id={resp.json().get('alert_id')})")
         else:
-            print(f"[ALERT] ✗ NIDS returned HTTP {resp.status_code}: {resp.text}")
+            print(f"[ALERT] !! NIDS returned HTTP {resp.status_code}: {resp.text}")
     except requests.exceptions.ConnectionError:
-        print(f"[ALERT] ✗ NIDS unreachable at {NIDS_ALERT_URL}. Is main.py running?")
+        print(f"[ALERT] !! NIDS unreachable at {NIDS_ALERT_URL}. Is main.py running?")
     except requests.exceptions.Timeout:
-        print(f"[ALERT] ✗ NIDS POST timed out after {ALERT_TIMEOUT_SEC}s")
+        print(f"[ALERT] !! NIDS POST timed out after {ALERT_TIMEOUT_SEC}s")
+
+
+# ─────────────────────────────────────────────
+#  DISPATCH
+# ─────────────────────────────────────────────
+def dispatch(flow: Flow, results: Optional[List] = None):
+    """Run inference on a flow and act on the result.
+
+    Appends (flow, label, prob) to `results` when provided (replay reporting),
+    and POSTs an alert when the flow is malicious and SEND_ALERTS is enabled.
+    """
+    label, attack_prob = run_inference(flow)
+    if label is None:
+        return
+    if results is not None:
+        results.append((flow, label, attack_prob))
+    if label not in NORMAL_LABELS and SEND_ALERTS:
+        send_alert(flow, label, attack_prob)
+
 
 # ─────────────────────────────────────────────
 #  PACKET PROCESSOR
@@ -394,7 +502,6 @@ def process_packet(pkt):
     dst   = pkt[IP].dst
     proto = "tcp" if TCP in pkt else "udp" if UDP in pkt else "icmp"
 
-    # Determine destination port for service mapping
     dst_port = 0
     if TCP in pkt:
         dst_port = pkt[TCP].dport
@@ -403,36 +510,130 @@ def process_packet(pkt):
 
     flow = get_or_create_flow(src, dst, proto, dst_port)
 
-    # ── Update flow metrics ───────────────────
-    flow.src_bytes += len(pkt)
-    flow.count     += 1
+    # ── Attribute the packet to a direction ───
+    from_initiator = (src == flow.initiator)
+    if from_initiator:
+        flow.src_bytes += len(pkt)
+    else:
+        flow.dst_bytes += len(pkt)
+    flow.count += 1
+    flow.observe_time(float(getattr(pkt, "time", time.time())))
 
     if TCP in pkt:
         flags = int(pkt[TCP].flags)
-        flow.update_tcp_flags(flags, direction="src")
+        flow.update_tcp_flags(flags, from_initiator=from_initiator)
 
-    # ── Run inference once flow is mature ─────
-    if flow.count >= FLOW_MIN_PACKETS and not flow.inferenced:
+    # ── Live mode: infer inline once a flow matures ─────
+    if INLINE_INFERENCE and flow.count >= MIN_PACKETS and not flow.inferenced:
         flow.inferenced = True   # mark before inference to avoid race on next packet
-        label = run_inference(flow)
+        dispatch(flow)
 
-        if label is not None and label not in NORMAL_LABELS:
-            send_alert(flow, label)
+
+# ─────────────────────────────────────────────
+#  PCAP REPLAY  (offline analysis)
+# ─────────────────────────────────────────────
+def replay_pcap(path: str):
+    """Replay a pcap file through the detector and print a per-flow report.
+
+    Unlike live mode, this evaluates each COMPLETE flow once (after all its
+    packets are seen), giving the most accurate per-flow features.
+    """
+    from scapy.all import PcapReader
+
+    flow_table.clear()
+    n_pkts = 0
+    print(f"[REPLAY] Reading {path} ...")
+    try:
+        with PcapReader(path) as reader:
+            for pkt in reader:
+                process_packet(pkt)
+                n_pkts += 1
+    except FileNotFoundError:
+        raise SystemExit(f"[FATAL] pcap not found: {path}")
+
+    results: List = []
+    for flow in flow_table.values():
+        if flow.count >= MIN_PACKETS:
+            flow.inferenced = True
+            dispatch(flow, results)
+
+    _print_replay_report(path, n_pkts, results)
+    return results
+
+
+def _print_replay_report(path: str, n_pkts: int, results: List):
+    attacks = [r for r in results if r[1] not in NORMAL_LABELS]
+    print("\n" + "=" * 64)
+    print(f"  REPLAY REPORT — {path}")
+    print("=" * 64)
+    print(f"  packets={n_pkts}  flows>= {MIN_PACKETS}pkts evaluated={len(results)}  "
+          f"flagged={len(attacks)}")
+    if attacks:
+        print("\n  Flagged flows:")
+        print(f"    {'source':<16}{'dest':<16}{'svc':<12}{'flag':<6}{'p':>6}")
+        for flow, label, prob in sorted(attacks, key=lambda r: -(r[2] or 0)):
+            p = f"{prob:.2f}" if prob is not None else " n/a"
+            print(f"    {flow.src:<16}{flow.dst:<16}{flow.service:<12}"
+                  f"{flow.kdd_flag:<6}{p:>6}")
+    else:
+        print("  No flows flagged as attacks.")
+    print("=" * 64)
+
 
 # ─────────────────────────────────────────────
 #  ENTRY POINT
 # ─────────────────────────────────────────────
-if __name__ == "__main__":
+def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="NIDS ML sensor — live capture or offline pcap replay.",
+    )
+    src = parser.add_mutually_exclusive_group()
+    src.add_argument("--pcap", metavar="FILE",
+                     help="replay a pcap file offline instead of live capture")
+    src.add_argument("--iface", default=NETWORK_INTERFACE,
+                     help=f"live capture interface (default: {NETWORK_INTERFACE})")
+    parser.add_argument("--min-packets", type=int, default=FLOW_MIN_PACKETS,
+                        help=f"packets before a flow is evaluated "
+                             f"(default: {FLOW_MIN_PACKETS})")
+    parser.add_argument("--send-alerts", action="store_true",
+                        help="POST alerts to main.py even in replay mode")
+    args = parser.parse_args()
+
+    global MIN_PACKETS, INLINE_INFERENCE, SEND_ALERTS
+    MIN_PACKETS = args.min_packets
+
     load_model()
 
-    # Start background flow cleanup thread
+    if args.pcap:
+        # Replay mode: evaluate complete flows; report only unless --send-alerts.
+        INLINE_INFERENCE = False
+        SEND_ALERTS = args.send_alerts
+        replay_pcap(args.pcap)
+        return
+
+    # Live capture mode.
+    if not SCAPY_AVAILABLE:
+        raise SystemExit(
+            "[FATAL] scapy not installed — live capture unavailable.\n"
+            "        Install it (and Npcap on Windows / libpcap on Linux):\n"
+            "          pip install scapy"
+        )
+    INLINE_INFERENCE = True
+    SEND_ALERTS = True
+
     cleanup_thread = threading.Thread(target=cleanup_expired_flows, daemon=True)
     cleanup_thread.start()
     print(f"[+] Flow cleanup thread started (interval={FLOW_CLEANUP_INTERVAL}s)")
 
-    print(f"[+] Monitoring interface: {NETWORK_INTERFACE}")
-    print(f"[+] Inference triggers at {FLOW_MIN_PACKETS} packets per flow")
-    print(f"[+] Alerts → {NIDS_ALERT_URL}")
-    print("─" * 60)
+    print(f"[+] Monitoring interface: {args.iface}")
+    print(f"[+] Inference triggers at {MIN_PACKETS} packets per flow")
+    print(f"[+] Alerts -> {NIDS_ALERT_URL}")
+    print("-" * 60)
 
-    sniff(iface=NETWORK_INTERFACE, prn=process_packet, store=False)
+    sniff(iface=args.iface, prn=process_packet, store=False)
+
+
+if __name__ == "__main__":
+    main()

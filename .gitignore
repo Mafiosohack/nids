@@ -17,15 +17,21 @@ ENV/
 logs/
 *.log
 
-# Model files
+# Model files (regenerable via training scripts)
 models/*.pkl
 models/*.h5
 models/*.pt
+models/*.json
 
-# Dataset files
+# Dataset / capture files
 data/*.csv
-data/*.pcap
 data/*.json
+*.pcap
+
+# Runtime databases
+*.db
+*.sqlite
+*.sqlite3
 
 # IDE
 .vscode/
