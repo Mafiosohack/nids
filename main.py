@@ -15,6 +15,7 @@ live_ids_v2.py handles flow-based ML and forwards alerts to /alert.
 
 import hashlib
 import hmac
+import json
 import secrets
 import sqlite3
 import threading
@@ -821,6 +822,37 @@ def status(session: dict = Depends(require_auth)):
         "interface":        NETWORK_INTERFACE,
         "user":             session["username"],
         "role":             session["role"],
+    }
+
+
+# ── Model Endpoint ────────────────────────────
+
+@app.get("/model/info", tags=["System"])
+def model_info(session: dict = Depends(require_auth)):
+    """Serve the ML model's honestly-evaluated metrics for the dashboard.
+
+    Reads the metadata written by train_random_forest_v2.py so the UI reflects
+    real KDDTest+ performance instead of hardcoded placeholder numbers.
+    """
+    meta_path = Path("models/rf_live_features.json")
+    if not meta_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Model metadata not found. Run: python train_random_forest_v2.py",
+        )
+    try:
+        with open(meta_path) as f:
+            meta = json.load(f)
+    except (ValueError, OSError) as e:
+        raise HTTPException(status_code=500, detail=f"Could not read metadata: {e}")
+
+    return {
+        "models":             meta.get("models", []),
+        "feature_importance": meta.get("feature_importance", []),
+        "decision_threshold": meta.get("decision_threshold"),
+        "trained_on":         meta.get("trained_on"),
+        "evaluated_on":       meta.get("evaluated_on"),
+        "test_samples":       meta.get("test_samples"),
     }
 
 

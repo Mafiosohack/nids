@@ -411,15 +411,12 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
   <!-- Model + Features -->
   <div class="row-a">
     <div class="panel">
-      <div class="panel-header"><span class="panel-title">Model Comparison</span><span class="panel-meta"><span class="active-pip"></span> Active: Random Forest</span></div>
+      <div class="panel-header"><span class="panel-title">Model Comparison</span><span class="panel-meta" id="model-active"><span class="active-pip"></span> on KDDTest+</span></div>
       <div class="panel-body" style="padding:0">
         <table class="model-tbl">
           <thead><tr><th>Model</th><th>Acc</th><th>Prec</th><th>Recall</th><th>F1</th><th>AUC</th></tr></thead>
-          <tbody>
-            <tr><td><div class="tbl-active"><div class="active-pip"></div><span class="tbl-name">Random Forest</span></div></td><td><span class="v-green-s">97.3</span></td><td><span class="v-dim-s">96.1</span></td><td><span class="v-dim-s">93.5</span></td><td><span class="v-amber-s">94.8</span></td><td><span class="v-dim-s">97.8</span></td></tr>
-            <tr><td><span class="tbl-name">Isolation Forest</span></td><td><span class="v-green-s">94.2</span></td><td><span class="v-dim-s">91.8</span></td><td><span class="v-dim-s">89.3</span></td><td><span class="v-blue-s">90.5</span></td><td><span class="v-dim-s">93.1</span></td></tr>
-            <tr><td><span class="tbl-name">One-Class SVM</span></td><td><span class="v-green-s">91.7</span></td><td><span class="v-dim-s">88.4</span></td><td><span class="v-dim-s">86.1</span></td><td><span class="v-blue-s">87.2</span></td><td><span class="v-dim-s">90.3</span></td></tr>
-            <tr><td><span class="tbl-name">Autoencoder</span></td><td><span class="v-green-s">95.8</span></td><td><span class="v-dim-s">93.2</span></td><td><span class="v-dim-s">92.7</span></td><td><span class="v-blue-s">92.9</span></td><td><span class="v-dim-s">95.4</span></td></tr>
+          <tbody id="model-tbody">
+            <tr><td colspan="6" style="text-align:center;color:var(--text-dim);padding:18px">Loading model metrics…</td></tr>
           </tbody>
         </table>
       </div>
@@ -659,6 +656,9 @@ function onLoginSuccess() {
   // Apply RBAC to UI controls
   applyRoleUI();
 
+  // Load real model metrics once (static per training run)
+  loadModelInfo();
+
   // Start polling
   Promise.all([pollStatus(), pollAlerts()]);
   pollIntervals.push(setInterval(pollAlerts,  POLL_MS));
@@ -896,8 +896,9 @@ function initDonut() {
   donutChart=new Chart(ctx,{type:'doughnut',data:{labels:['DoS/DDoS','Recon','Brute Force','ML Anomaly','Chain/Multi','Other'],datasets:[{data:[0,0,0,0,0,0],backgroundColor:['#ef4444','#f59e0b','#a78bfa','#2dd4bf','#3b82f6','#475569'],borderColor:'#131d28',borderWidth:3,hoverOffset:5}]},options:{cutout:'70%',responsive:true,maintainAspectRatio:true,animation:{duration:400},plugins:{legend:{display:false},tooltip:{backgroundColor:'#0f1923',borderColor:'#1e3048',borderWidth:1,titleColor:'#f1f5f9',bodyColor:'#94a3b8',titleFont:{family:mono,size:11},bodyFont:{family:mono,size:11}}}}});
 }
 
-function renderFeatures() {
-  el('feat-list').innerHTML=FEATURES.map(f=>`
+function renderFeatures(data) {
+  const feats = (data && data.length) ? data : FEATURES;
+  el('feat-list').innerHTML=feats.map(f=>`
     <div class="feat-row">
       <span class="feat-lbl">${f.name}</span>
       <div class="feat-track"><div class="feat-fill" style="width:0%" data-pct="${f.pct}"></div></div>
@@ -906,6 +907,37 @@ function renderFeatures() {
   requestAnimationFrame(()=>{
     document.querySelectorAll('.feat-fill').forEach(b=>b.style.width=b.dataset.pct+'%');
   });
+}
+
+/* Pull real, honestly-evaluated model metrics from the API (set by
+   train_random_forest_v2.py) and render the comparison + feature importance. */
+async function loadModelInfo() {
+  const tb = el('model-tbody');
+  const fmt = v => (v==null ? '—' : (v*100).toFixed(1));
+  try {
+    const data = await apiFetch('/model/info');
+    if (data.models && data.models.length) {
+      tb.innerHTML = data.models.map(m => {
+        const nameCell = m.active
+          ? `<div class="tbl-active"><div class="active-pip"></div><span class="tbl-name">${m.name}</span></div>`
+          : `<span class="tbl-name">${m.name}</span>`;
+        return `<tr><td>${nameCell}</td>`
+          + `<td><span class="v-green-s">${fmt(m.accuracy)}</span></td>`
+          + `<td><span class="v-dim-s">${fmt(m.precision)}</span></td>`
+          + `<td><span class="v-dim-s">${fmt(m.recall)}</span></td>`
+          + `<td><span class="v-amber-s">${fmt(m.f1)}</span></td>`
+          + `<td><span class="v-dim-s">${fmt(m.auc)}</span></td></tr>`;
+      }).join('');
+      const active = data.models.find(m => m.active);
+      if (active) el('model-active').innerHTML =
+        `<span class="active-pip"></span> Active: ${active.name} · ${data.evaluated_on||'KDDTest+'}`;
+    }
+    if (data.feature_importance && data.feature_importance.length) {
+      renderFeatures(data.feature_importance);
+    }
+  } catch (e) {
+    tb.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--text-dim);padding:18px">Model metrics unavailable — train the model first.</td></tr>`;
+  }
 }
 
 /* ═══════════════════════════════════════════

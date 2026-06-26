@@ -38,7 +38,10 @@ from sklearn.metrics import (
     classification_report,
     confusion_matrix,
     accuracy_score,
+    precision_score,
+    recall_score,
     f1_score,
+    roc_auc_score,
 )
 
 # Make project root importable when run directly.
@@ -139,6 +142,9 @@ def evaluate(name, model, Xte, cat_test, threshold=None):
 
     acc = accuracy_score(y_true, y_pred)
     f1 = f1_score(y_true, y_pred)
+    prec = precision_score(y_true, y_pred, zero_division=0)
+    rec = recall_score(y_true, y_pred, zero_division=0)
+    auc = roc_auc_score(y_true, model.predict_proba(Xte)[:, _attack_index(model)])
     tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
 
     print(f"\n{'='*64}\n  {name}\n  evaluated on KDDTest+ (held-out)\n{'='*64}")
@@ -166,7 +172,8 @@ def evaluate(name, model, Xte, cat_test, threshold=None):
             rate = float((y_pred[mask] == 1).mean())  # correctly caught
         print(f"    {c:<9} n={n:<6} {rate:6.2%}")
 
-    return {"accuracy": acc, "f1_attack": f1, "fpr": fpr}
+    return {"accuracy": acc, "precision": prec, "recall": rec,
+            "f1_attack": f1, "auc": auc, "fpr": fpr}
 
 
 def print_operating_points(model, Xte, cat_test):
@@ -188,6 +195,30 @@ def print_operating_points(model, Xte, cat_test):
         recall = tp / (tp + fn) if (tp + fn) else 0.0
         f1 = f1_score(y_true, pred, zero_division=0)
         print(f"  {t:>10.2f}{fpr:>10.4f}{recall:>10.4f}{f1:>10.4f}")
+
+
+def aggregate_importances(model, encoder, top_n=8):
+    """Map the model's per-column importances back to original feature names.
+
+    The model sees [numeric... | one-hot(categoricals)]. We sum the one-hot
+    columns of each categorical back into a single importance per original
+    feature, then return the top_n as {name, pct} where pct is scaled so the
+    most important feature is 100%.
+    """
+    imp = model.feature_importances_
+    names = list(LIVE_NUMERIC_FEATURES)
+    values = list(imp[:len(LIVE_NUMERIC_FEATURES)])
+
+    offset = len(LIVE_NUMERIC_FEATURES)
+    for cat_name, cats in zip(LIVE_CATEGORICAL_FEATURES, encoder.categories_):
+        width = len(cats)
+        names.append(cat_name)
+        values.append(float(imp[offset:offset + width].sum()))
+        offset += width
+
+    ranked = sorted(zip(names, values), key=lambda kv: kv[1], reverse=True)[:top_n]
+    top = ranked[0][1] if ranked and ranked[0][1] > 0 else 1.0
+    return [{"name": n, "pct": round(100.0 * v / top, 1)} for n, v in ranked]
 
 
 def train_rf(Xtr, y_tr):
@@ -281,6 +312,17 @@ def main():
     joblib.dump(model_live, ROOT / LIVE_MODEL_PATH)
     joblib.dump(encoder, ROOT / LIVE_ENCODER_PATH)
 
+    def model_row(name, res, active, note):
+        return {
+            "name": name, "active": active, "note": note,
+            "accuracy": round(res["accuracy"], 4),
+            "precision": round(res["precision"], 4),
+            "recall": round(res["recall"], 4),
+            "f1": round(res["f1_attack"], 4),
+            "auc": round(res["auc"], 4),
+            "fpr": round(res["fpr"], 4),
+        }
+
     meta = {
         "numeric_features": LIVE_NUMERIC_FEATURES,
         "categorical_features": LIVE_CATEGORICAL_FEATURES,
@@ -288,7 +330,17 @@ def main():
         "n_features_out": int(Xtr_live.shape[1]),
         "trained_on": "KDDTrain+",
         "evaluated_on": "KDDTest+",
+        "train_samples": int(len(X_train)),
+        "test_samples": int(len(X_test)),
         "decision_threshold": threshold,
+        # Real, honestly-evaluated metrics for the dashboard.
+        "models": [
+            model_row("Random Forest (live)", res_live, True,
+                      f"live features @ {threshold:.2f}"),
+            model_row("Random Forest (full)", res_full, False,
+                      "all 41 features @ 0.50"),
+        ],
+        "feature_importance": aggregate_importances(model_live, encoder),
         "kddtest_accuracy": res_live["accuracy"],
         "kddtest_f1_attack": res_live["f1_attack"],
         "kddtest_fpr": res_live["fpr"],
