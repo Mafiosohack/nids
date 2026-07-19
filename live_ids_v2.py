@@ -36,13 +36,28 @@ import requests
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
+# Console output uses Unicode (→, ↑/↓) in log lines; force UTF-8 so it doesn't
+# crash on a legacy Windows code page (cp1252). No-op where already UTF-8.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
+
 from feature_engineering.live_features import (
     LIVE_NUMERIC_FEATURES,
     LIVE_CATEGORICAL_FEATURES,
-    LIVE_MODEL_PATH,
-    LIVE_ENCODER_PATH,
-    LIVE_FEATURE_META_PATH,
 )
+
+# The sensor now serves the CIC-IDS2017 live-schema MULTICLASS model (Model B,
+# trained by train_cicids_live.py). It uses the SAME 10+3 live feature vector as
+# the old NSL-KDD model, so the packet-derived features below feed it unchanged —
+# but it predicts the specific attack type (DDoS / PortScan / Web Attack / ...)
+# instead of a binary attack/normal verdict. See collector/cicids_loader.py for
+# the CIC->live mapping that mirrors this sensor's feature derivation.
+CICIDS_LIVE_MODEL_PATH   = "models/cicids_live.pkl"
+CICIDS_LIVE_ENCODER_PATH = "models/cicids_live_encoder.pkl"
+CICIDS_LIVE_META_PATH    = "models/cicids_live_meta.json"
 
 try:
     import joblib
@@ -62,9 +77,9 @@ except ImportError:
 #  CONFIG
 # ─────────────────────────────────────────────
 NETWORK_INTERFACE   = "ens37"
-MODEL_PATH          = str(ROOT / LIVE_MODEL_PATH)
-ENCODER_PATH        = str(ROOT / LIVE_ENCODER_PATH)
-META_PATH           = str(ROOT / LIVE_FEATURE_META_PATH)
+MODEL_PATH          = str(ROOT / CICIDS_LIVE_MODEL_PATH)
+ENCODER_PATH        = str(ROOT / CICIDS_LIVE_ENCODER_PATH)
+META_PATH           = str(ROOT / CICIDS_LIVE_META_PATH)
 NIDS_ALERT_URL      = "http://127.0.0.1:8000/alert"
 ALERT_TIMEOUT_SEC   = 2         # HTTP POST timeout
 
@@ -344,28 +359,41 @@ def cleanup_expired_flows():
 # ─────────────────────────────────────────────
 model = None
 encoder = None
-_attack_index = 1          # index of the "attack" class in model.classes_
-DECISION_THRESHOLD = 0.5   # overridden from model metadata in load_model()
+CLASSES: List[str] = []    # model.classes_ (CIC-IDS attack-type labels)
+BENIGN_INDEX = None        # index of the BENIGN class in CLASSES, or None
+# Attack if P(any attack) = 1 - P(BENIGN) >= threshold. Overridable via metadata.
+DECISION_THRESHOLD = 0.5
+
+
+def _is_benign_label(name) -> bool:
+    return str(name).strip().lower() in NORMAL_LABELS
 
 
 def load_model():
-    """Load the live-aligned model + encoder and validate feature alignment."""
-    global model, encoder, _attack_index, DECISION_THRESHOLD
-    print("[ML] Loading live-aligned model and encoder...")
+    """Load the CIC-IDS live-schema multiclass model + encoder and validate
+    feature alignment."""
+    global model, encoder, CLASSES, BENIGN_INDEX, DECISION_THRESHOLD
+    print("[ML] Loading CIC-IDS live-schema multiclass model and encoder...")
     try:
         model = joblib.load(MODEL_PATH)
         encoder = joblib.load(ENCODER_PATH)
     except FileNotFoundError as e:
         raise SystemExit(
             f"[FATAL] Could not load model/encoder: {e}\n"
-            f"        Train it first:  python train_random_forest_v2.py"
+            f"        Train it first:  python train_cicids_live.py"
         )
     except Exception as e:
         raise SystemExit(f"[FATAL] Model load error: {e}")
 
-    # Resolve which class index corresponds to "attack" (1).
-    classes = list(getattr(model, "classes_", [0, 1]))
-    _attack_index = classes.index(1) if 1 in classes else len(classes) - 1
+    # The model predicts specific attack types; find the BENIGN class so we can
+    # derive P(attack) = 1 - P(BENIGN) and pick the top attack type.
+    CLASSES = list(getattr(model, "classes_", []))
+    BENIGN_INDEX = next(
+        (i for i, c in enumerate(CLASSES) if _is_benign_label(c)), None
+    )
+    if BENIGN_INDEX is None:
+        print("[ML][WARN] No BENIGN class found in model.classes_; "
+              "treating argmax class as the verdict.")
 
     # Validate that the feature width we will emit matches the model.
     n_cat = sum(len(c) for c in encoder.categories_)
@@ -373,30 +401,44 @@ def load_model():
     n_in = getattr(model, "n_features_in_", expected)
     if n_in != expected:
         print(f"[ML][WARN] Feature width mismatch: model expects {n_in}, "
-              f"sensor emits {expected}. Retrain with train_random_forest_v2.py.")
+              f"sensor emits {expected}. Retrain with train_cicids_live.py.")
     else:
         print(f"[ML] Feature alignment OK ({expected} features: "
               f"{len(LIVE_NUMERIC_FEATURES)} numeric + {n_cat} one-hot).")
 
-    # Apply the tuned decision threshold and surface the model's honest score.
+    # Surface the model's honest hold-out score from metadata.
     try:
         with open(META_PATH) as f:
             meta = json.load(f)
         DECISION_THRESHOLD = float(meta.get("decision_threshold", 0.5))
-        print(f"[ML] Model KDDTest+ accuracy={meta.get('kddtest_accuracy'):.3f} "
-              f"F1(attack)={meta.get('kddtest_f1_attack'):.3f} "
-              f"FPR={meta.get('kddtest_fpr'):.3f}")
+        m = meta.get("metrics", {})
+        print(f"[ML] {len(CLASSES)} classes: {', '.join(map(str, CLASSES))}")
+        print(f"[ML] Hold-out accuracy={m.get('accuracy')} "
+              f"macro-F1={m.get('macro_f1')} "
+              f"any-attack recall={m.get('binary_recall')} "
+              f"FPR={m.get('binary_fpr')}")
         print(f"[ML] Decision threshold: {DECISION_THRESHOLD:.2f} "
-              f"(attack if p >= threshold)")
+              f"(attack if 1 - P(BENIGN) >= threshold)")
     except (FileNotFoundError, TypeError, ValueError):
         pass
 
     print("[ML] Model and encoder loaded successfully.")
 
 
-def run_inference(flow: Flow) -> Tuple[Optional[str], Optional[float]]:
-    """Build the live-aligned feature vector, predict, and return
-    (label, attack_probability). Returns (None, None) on error."""
+def run_inference(
+    flow: Flow,
+) -> Tuple[Optional[str], Optional[float], Optional[str]]:
+    """Build the live feature vector, run the multiclass model, and return
+    (label, attack_probability, attack_type).
+
+      label        : "attack" or "normal" (binary verdict for alerting)
+      attack_prob  : P(any attack) = 1 - P(BENIGN)
+      attack_type  : the most likely specific attack class (e.g. "DDoS",
+                     "PortScan", "Web Attack - XSS") when label == "attack",
+                     else None.
+
+    Returns (None, None, None) on error.
+    """
     try:
         numeric = flow.build_feature_vector()                      # (1, N_num)
         cat_values = {
@@ -408,30 +450,45 @@ def run_inference(flow: Flow) -> Tuple[Optional[str], Optional[float]]:
         cat_encoded = encoder.transform(cat_row)                   # (1, N_cat)
         features = np.hstack([numeric, cat_encoded])
 
-        attack_prob = None
-        if hasattr(model, "predict_proba"):
-            attack_prob = float(model.predict_proba(features)[0][_attack_index])
-            is_attack = attack_prob >= DECISION_THRESHOLD
-        else:
-            is_attack = int(model.predict(features)[0]) == 1
+        proba = model.predict_proba(features)[0]
+        top_order = np.argsort(proba)[::-1]
 
+        if BENIGN_INDEX is not None:
+            attack_prob = float(1.0 - proba[BENIGN_INDEX])
+            is_attack = attack_prob >= DECISION_THRESHOLD
+            # Most likely NON-benign class as the attack type.
+            attack_idx = next((i for i in top_order if i != BENIGN_INDEX),
+                              top_order[0])
+        else:
+            top = int(top_order[0])
+            attack_prob = float(proba[top])
+            is_attack = not _is_benign_label(CLASSES[top])
+            attack_idx = top
+
+        attack_type = str(CLASSES[attack_idx]) if is_attack else None
         label = "attack" if is_attack else "normal"
-        conf = f" p={attack_prob:.2f}" if attack_prob is not None else ""
+
+        typ = f" type='{attack_type}'" if attack_type else ""
         print(f"[ML] {flow.src} → {flow.dst} | proto={flow.proto} "
-              f"svc={flow.service} flag={flow.kdd_flag} | pred='{label}'{conf}")
-        return label, attack_prob
+              f"svc={flow.service} flag={flow.kdd_flag} | "
+              f"pred='{label}'{typ} p={attack_prob:.2f}")
+        return label, attack_prob, attack_type
 
     except Exception as e:
         print(f"[ML] Inference error for flow {flow.src}→{flow.dst}: {e}")
-        return None, None
+        return None, None, None
 
 
 # ─────────────────────────────────────────────
 #  ALERT
 # ─────────────────────────────────────────────
-def send_alert(flow: Flow, label: str, attack_prob: Optional[float]):
+def send_alert(flow: Flow, label: str, attack_prob: Optional[float],
+               attack_type: Optional[str] = None):
     severity = "high" if (attack_prob is not None and attack_prob >= HIGH_CONFIDENCE) else "medium"
     conf_txt = f"{attack_prob:.0%} confidence" if attack_prob is not None else "n/a"
+    # Prefer the specific attack type in the headline; fall back to the binary
+    # verdict when the model can't name one.
+    verdict = attack_type or label
 
     payload = {
         "src":        flow.src,
@@ -440,12 +497,13 @@ def send_alert(flow: Flow, label: str, attack_prob: Optional[float]):
         "alert_type": "ML Anomaly",
         "severity":   severity,
         "message":    (
-            f"ML model flagged flow as '{label}' ({conf_txt}): "
+            f"ML model flagged flow as '{verdict}' ({conf_txt}): "
             f"{flow.src} → {flow.dst} ({flow.proto}/{flow.service}), "
             f"{flow.count} pkts, {flow.src_bytes}↑/{flow.dst_bytes}↓ bytes"
         ),
         "details": {
             "predicted_label": label,
+            "attack_type":     attack_type,
             "attack_probability": round(attack_prob, 4) if attack_prob is not None else None,
             "service":         flow.service,
             "kdd_flag":        flow.kdd_flag,
@@ -482,13 +540,13 @@ def dispatch(flow: Flow, results: Optional[List] = None):
     Appends (flow, label, prob) to `results` when provided (replay reporting),
     and POSTs an alert when the flow is malicious and SEND_ALERTS is enabled.
     """
-    label, attack_prob = run_inference(flow)
+    label, attack_prob, attack_type = run_inference(flow)
     if label is None:
         return
     if results is not None:
-        results.append((flow, label, attack_prob))
+        results.append((flow, label, attack_prob, attack_type))
     if label not in NORMAL_LABELS and SEND_ALERTS:
-        send_alert(flow, label, attack_prob)
+        send_alert(flow, label, attack_prob, attack_type)
 
 
 # ─────────────────────────────────────────────
@@ -563,21 +621,21 @@ def replay_pcap(path: str):
 
 def _print_replay_report(path: str, n_pkts: int, results: List):
     attacks = [r for r in results if r[1] not in NORMAL_LABELS]
-    print("\n" + "=" * 64)
+    print("\n" + "=" * 72)
     print(f"  REPLAY REPORT — {path}")
-    print("=" * 64)
+    print("=" * 72)
     print(f"  packets={n_pkts}  flows>= {MIN_PACKETS}pkts evaluated={len(results)}  "
           f"flagged={len(attacks)}")
     if attacks:
         print("\n  Flagged flows:")
-        print(f"    {'source':<16}{'dest':<16}{'svc':<12}{'flag':<6}{'p':>6}")
-        for flow, label, prob in sorted(attacks, key=lambda r: -(r[2] or 0)):
+        print(f"    {'source':<16}{'dest':<16}{'svc':<10}{'attack type':<22}{'p':>6}")
+        for flow, label, prob, atype in sorted(attacks, key=lambda r: -(r[2] or 0)):
             p = f"{prob:.2f}" if prob is not None else " n/a"
-            print(f"    {flow.src:<16}{flow.dst:<16}{flow.service:<12}"
-                  f"{flow.kdd_flag:<6}{p:>6}")
+            print(f"    {flow.src:<16}{flow.dst:<16}{flow.service:<10}"
+                  f"{str(atype or label):<22}{p:>6}")
     else:
         print("  No flows flagged as attacks.")
-    print("=" * 64)
+    print("=" * 72)
 
 
 # ─────────────────────────────────────────────

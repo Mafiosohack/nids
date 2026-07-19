@@ -74,11 +74,13 @@ def test_inference_runs_both_classes():
     )
 
     for name, flow in [("benign-https", benign), ("synflood", synflood)]:
-        label, prob = sensor.run_inference(flow)
+        label, prob, attack_type = sensor.run_inference(flow)
         assert label in ("normal", "attack"), label
         assert prob is None or 0.0 <= prob <= 1.0
+        # attack_type is a specific CIC-IDS class when flagged, else None.
+        assert (attack_type is None) == (label == "normal"), (label, attack_type)
         print(f"[OK] inference {name:<13} -> label={label} "
-              f"p_attack={prob:.3f}" + (" (SF=%s)" % flow.kdd_flag))
+              f"type={attack_type} p_attack={prob:.3f}" + (" (SF=%s)" % flow.kdd_flag))
 
 
 if __name__ == "__main__":

@@ -465,10 +465,10 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
   <!-- Model + Features -->
   <div class="row-a">
     <div class="panel">
-      <div class="panel-header"><span class="panel-title">Model Comparison</span><span class="panel-meta" id="model-active"><span class="active-pip"></span> on KDDTest+</span></div>
+      <div class="panel-header"><span class="panel-title">Model Comparison</span><span class="panel-meta" id="model-active"><span class="active-pip"></span> on CIC-IDS2017</span></div>
       <div class="panel-body" style="padding:0">
         <table class="model-tbl">
-          <thead><tr><th>Model</th><th>Acc</th><th>Prec</th><th>Recall</th><th>F1</th><th>AUC</th></tr></thead>
+          <thead><tr><th>Model</th><th>Acc</th><th>Macro-F1</th><th>Bal-Acc</th><th>Detect</th><th>FPR</th></tr></thead>
           <tbody id="model-tbody">
             <tr><td colspan="6" style="text-align:center;color:var(--text-dim);padding:18px">Loading model metrics…</td></tr>
           </tbody>
@@ -1044,14 +1044,14 @@ async function loadModelInfo() {
           : `<span class="tbl-name">${m.name}</span>`;
         return `<tr><td>${nameCell}</td>`
           + `<td><span class="v-green-s">${fmt(m.accuracy)}</span></td>`
-          + `<td><span class="v-dim-s">${fmt(m.precision)}</span></td>`
-          + `<td><span class="v-dim-s">${fmt(m.recall)}</span></td>`
-          + `<td><span class="v-amber-s">${fmt(m.f1)}</span></td>`
-          + `<td><span class="v-dim-s">${fmt(m.auc)}</span></td></tr>`;
+          + `<td><span class="v-amber-s">${fmt(m.macro_f1)}</span></td>`
+          + `<td><span class="v-dim-s">${fmt(m.balanced_accuracy)}</span></td>`
+          + `<td><span class="v-green-s">${fmt(m.detect)}</span></td>`
+          + `<td><span class="v-dim-s">${fmt(m.fpr)}</span></td></tr>`;
       }).join('');
       const active = data.models.find(m => m.active);
       if (active) el('model-active').innerHTML =
-        `<span class="active-pip"></span> Active: ${active.name} · ${data.evaluated_on||'KDDTest+'}`;
+        `<span class="active-pip"></span> Active: ${active.name} · ${data.evaluated_on||'CIC-IDS2017'}`;
     }
     if (data.feature_importance && data.feature_importance.length) {
       renderFeatures(data.feature_importance);

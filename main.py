@@ -17,6 +17,7 @@ import hashlib
 import hmac
 import json
 import math
+import os
 import secrets
 import sqlite3
 import threading
@@ -144,10 +145,56 @@ DNS_SUSPICIOUS_QTYPES   = {10, 16, 251, 252}   # NULL, TXT, IXFR, AXFR
 ARP_COOLDOWN            = 60     # seconds between repeat alerts per IP
 
 # ─────────────────────────────────────────────
+#  ADAPTIVE BASELINING + ASSET INVENTORY
+#  Closes the evasions a red-teamer uses against static per-source thresholds.
+# ─────────────────────────────────────────────
+# Optional asset inventory (known IP↔MAC + authorised hosts). When present it
+# gives ARP detection a TRUST ANCHOR (so we know which MAC is the impostor,
+# not just that one changed) and enables rogue-device detection.
+ASSETS_PATH             = Path(os.environ.get("NIDS_ASSETS", "assets.json"))
+
+# Distributed scan: many sources each probing one destination (each staying
+# under the per-source port-scan threshold) — a botnet / coordinated sweep.
+DISTRIBUTED_WINDOW      = 20     # seconds
+DISTRIBUTED_SRC_MIN     = 4      # distinct scanning sources → alert
+DISTRIBUTED_PORTS_MIN   = 3      # ports a source must hit to count as "scanning"
+
+# Slow / low-and-slow scan: distinct ports probed by one source over a LONG
+# horizon, defeating the short stealth-scan window.
+SLOWSCAN_WINDOW         = 1800   # 30 minutes
+SLOWSCAN_THRESHOLD      = 12     # distinct ports over the long horizon → alert
+
+# Adaptive baseline: per-source connection-rate EWMA. Flags a source whose
+# activity spikes far above ITS OWN learned normal — no fixed threshold.
+BASELINE_BUCKET         = 10     # seconds per rate sample
+BASELINE_ALPHA          = 0.3    # EWMA smoothing (higher = adapts faster)
+BASELINE_MIN_SAMPLES    = 6      # learn this many buckets before flagging
+BASELINE_K              = 4.0    # sigmas above the mean to consider anomalous
+BASELINE_MIN_COUNT      = 20     # ignore trivially small buckets (noise floor)
+
+# ─────────────────────────────────────────────
 #  AUTH CONFIG
 # ─────────────────────────────────────────────
-# Sensor pre-shared key — must match SENSOR_API_KEY in live_ids_v2.py
-SENSOR_API_KEY = "sensor-key-change-me-in-production"
+_DEFAULT_SENSOR_KEY = "sensor-key-change-me-in-production"
+_DEFAULT_ADMIN_PW   = "nids@admin123"
+
+# Sensor pre-shared key — override in production via env NIDS_SENSOR_KEY
+# (must match SENSOR_API_KEY in the sensors). Falls back to the shared default.
+SENSOR_API_KEY = os.environ.get("NIDS_SENSOR_KEY", _DEFAULT_SENSOR_KEY)
+
+# Initial admin password used ONLY to seed a brand-new DB. Override via env
+# NIDS_ADMIN_PASSWORD so a fresh deployment never ships a publicly-known password.
+ADMIN_SEED_PASSWORD = os.environ.get("NIDS_ADMIN_PASSWORD", _DEFAULT_ADMIN_PW)
+
+# Password hashing (PBKDF2-HMAC-SHA256). Stdlib only; salted + iterated.
+PBKDF2_ITERATIONS = 200_000
+
+# CORS: restrict to the dashboard's own origin(s). Override via env
+# NIDS_ALLOWED_ORIGINS (comma-separated) for remote dashboards.
+ALLOWED_ORIGINS = os.environ.get(
+    "NIDS_ALLOWED_ORIGINS",
+    "http://127.0.0.1:8000,http://localhost:8000",
+).split(",")
 
 # Session token expiry (hours)
 TOKEN_EXPIRY_HOURS = 8
@@ -226,26 +273,64 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_sessions_token
             ON sessions(token)
         """)
+        # Persistent alert store — survives restarts (was in-memory only).
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS alerts (
+                id         INTEGER PRIMARY KEY,
+                type       TEXT NOT NULL,
+                severity   TEXT NOT NULL,
+                src        TEXT,
+                dst        TEXT,
+                protocol   TEXT,
+                message    TEXT,
+                timestamp  TEXT NOT NULL,
+                details    TEXT,
+                created_at REAL NOT NULL
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_alerts_created ON alerts(created_at)")
 
-        # Seed default admin only if no users exist yet
+        # Seed admin only if no users exist yet.
         count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
         if count == 0:
             conn.execute(
                 "INSERT INTO users (username, password, role, created_at) VALUES (?,?,?,?)",
-                (
-                    "admin",
-                    _hash_password("nids@admin123"),
-                    "admin",
-                    datetime.now().isoformat(),
-                ),
+                ("admin", _hash_password(ADMIN_SEED_PASSWORD), "admin",
+                 datetime.now().isoformat()),
             )
-            print("[AUTH] Default admin created. Username: admin | Password: nids@admin123")
-            print("[AUTH] Change the password immediately via POST /auth/change-password")
+            if ADMIN_SEED_PASSWORD == _DEFAULT_ADMIN_PW:
+                print("[AUTH][WARN] Seeded admin with the PUBLIC default password "
+                      f"'{_DEFAULT_ADMIN_PW}'. Change it now (POST /auth/change-password) "
+                      "or set NIDS_ADMIN_PASSWORD before first run.")
+            else:
+                print("[AUTH] Seeded admin from NIDS_ADMIN_PASSWORD.")
 
 
 def _hash_password(password: str) -> str:
-    """SHA-256 hash of password. Simple but sufficient for a PoC."""
-    return hashlib.sha256(password.encode()).hexdigest()
+    """Salted PBKDF2-HMAC-SHA256. Format: pbkdf2$sha256$<iters>$<salt>$<hash>."""
+    salt = secrets.token_bytes(16)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, PBKDF2_ITERATIONS)
+    return f"pbkdf2$sha256${PBKDF2_ITERATIONS}${salt.hex()}${dk.hex()}"
+
+
+def _verify_password(password: str, stored: str) -> bool:
+    """Constant-time verify. Supports current PBKDF2 hashes AND legacy unsalted
+    SHA-256 hashes (64 hex chars) so pre-existing DBs keep working until the
+    user's next login transparently upgrades them (see login())."""
+    if stored.startswith("pbkdf2$"):
+        try:
+            _, _algo, iters, salt_hex, hash_hex = stored.split("$")
+            dk = hashlib.pbkdf2_hmac(
+                "sha256", password.encode(), bytes.fromhex(salt_hex), int(iters))
+            return hmac.compare_digest(dk.hex(), hash_hex)
+        except (ValueError, TypeError):
+            return False
+    # Legacy: unsalted SHA-256 hex digest.
+    return hmac.compare_digest(hashlib.sha256(password.encode()).hexdigest(), stored)
+
+
+def _is_legacy_hash(stored: str) -> bool:
+    return not stored.startswith("pbkdf2$")
 
 
 def db_get_user(username: str) -> Optional[sqlite3.Row]:
@@ -298,6 +383,67 @@ def db_list_users() -> list:
         ).fetchall()
     return [dict(r) for r in rows]
 
+
+# ── Alert persistence (durable across restarts) ──
+ALERT_RETENTION = 50_000   # keep at most this many alerts on disk
+
+
+def db_insert_alert(alert: Dict):
+    """Persist one alert. Details are stored as JSON text."""
+    with get_db() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO alerts "
+            "(id, type, severity, src, dst, protocol, message, timestamp, details, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (alert["id"], alert["type"], alert["severity"], alert.get("src"),
+             alert.get("dst"), alert.get("protocol"), alert.get("message"),
+             alert["timestamp"], json.dumps(alert.get("details", {})), time.time()),
+        )
+
+
+def db_load_recent_alerts(limit: int) -> List[Dict]:
+    """Load the most recent alerts (oldest→newest) to warm the in-memory cache."""
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM alerts ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+    out = []
+    for r in reversed(rows):
+        d = dict(r)
+        try:
+            d["details"] = json.loads(d.get("details") or "{}")
+        except (ValueError, TypeError):
+            d["details"] = {}
+        d.pop("created_at", None)
+        out.append(d)
+    return out
+
+
+def db_max_alert_id() -> int:
+    with get_db() as conn:
+        row = conn.execute("SELECT MAX(id) FROM alerts").fetchone()
+    return int(row[0]) if row and row[0] is not None else 0
+
+
+def db_alert_count() -> int:
+    with get_db() as conn:
+        return int(conn.execute("SELECT COUNT(*) FROM alerts").fetchone()[0])
+
+
+def db_prune_alerts():
+    """Enforce ALERT_RETENTION by dropping the oldest rows beyond the cap."""
+    with get_db() as conn:
+        conn.execute(
+            "DELETE FROM alerts WHERE id <= "
+            "(SELECT MAX(id) FROM alerts) - ?", (ALERT_RETENTION,),
+        )
+
+
+def db_clear_alerts():
+    with get_db() as conn:
+        conn.execute("DELETE FROM alerts")
+
+
 # ─────────────────────────────────────────────
 #  GLOBAL STATE
 # ─────────────────────────────────────────────
@@ -336,6 +482,48 @@ pc_lock             = threading.Lock()
 metadata_tracker    = defaultdict(list)                    # src → [ts] of IMDS hits
 dns_tracker         = defaultdict(lambda: {"timestamps": []})  # (src,parent) → ts list
 arp_ip_mac: Dict[str, str] = {}                            # ip → last-seen MAC
+
+# ── Asset inventory + adaptive-baseline trackers ──
+TRUSTED_ARP: Dict[str, str] = {}      # ip → known-good MAC (from assets.json)
+KNOWN_HOSTS: set = set()              # authorised host IPs
+_rogue_seen: set = set()             # rogue IPs already alerted (de-dupe)
+# dst → {"srcs": {src: set(ports)}, "start": ts}  — distributed-scan aggregation
+distributed_tracker = defaultdict(lambda: {"srcs": defaultdict(set), "start": 0.0})
+# src → {port: last_ts}  — long-horizon slow-scan accumulator
+slowscan_tracker    = defaultdict(dict)
+# src → EWMA baseline state for connection rate
+baseline_tracker    = defaultdict(lambda: {"ewma": None, "ewvar": 0.0,
+                                           "bucket": None, "count": 0, "samples": 0})
+
+
+def load_asset_inventory():
+    """Load assets.json if present: trusted IP↔MAC + authorised hosts.
+
+    Optional — without it, ARP detection still works (learn-on-first-sight) but
+    cannot tell the real host from the impostor. With it, attribution is exact.
+    """
+    TRUSTED_ARP.clear()
+    KNOWN_HOSTS.clear()
+    if not ASSETS_PATH.exists():
+        print(f"[ASSETS] No inventory at {ASSETS_PATH} — ARP uses learn-on-first-sight "
+              "(no trust anchor). Create one to enable verified ARP + rogue-host detection.")
+        return
+    try:
+        data = json.loads(ASSETS_PATH.read_text(encoding="utf-8"))
+    except (ValueError, OSError) as e:
+        print(f"[ASSETS][WARN] Could not read {ASSETS_PATH}: {e}")
+        return
+    gw = data.get("gateway") or {}
+    if gw.get("ip") and gw.get("mac"):
+        TRUSTED_ARP[gw["ip"]] = gw["mac"].lower()
+        KNOWN_HOSTS.add(gw["ip"])
+    for ip, mac in (data.get("trusted_arp") or {}).items():
+        TRUSTED_ARP[ip] = str(mac).lower()
+        KNOWN_HOSTS.add(ip)
+    for ip in (data.get("known_hosts") or []):
+        KNOWN_HOSTS.add(ip)
+    print(f"[ASSETS] Loaded inventory: {len(TRUSTED_ARP)} trusted ARP entries, "
+          f"{len(KNOWN_HOSTS)} known hosts.")
 
 # ── Kill-chain / intrusion state (per host = suspected attacker or victim) ──
 # host → {"stages": {stage: {"first": ts, "last": ts, "count": n, "detail": str}},
@@ -386,6 +574,8 @@ STAGE_LABELS = {
 ATTACK_MAP = {
     "Port Scan":            ("reconnaissance",      "Discovery",           "T1046"),
     "Stealth Scan":         ("reconnaissance",      "Discovery",           "T1046"),
+    "Slow Scan":            ("reconnaissance",      "Discovery",           "T1046"),
+    "Distributed Scan":     ("reconnaissance",      "Discovery",           "T1046"),
     "TCP Signature":        ("reconnaissance",      "Discovery",           "T1046"),
     "Brute Force Attempt":  ("credential_access",   "Credential Access",   "T1110"),
     "Breach":               ("initial_access",      "Initial Access",      "T1078"),
@@ -525,6 +715,15 @@ def generate_alert(
 
     with alerts_lock:
         alerts.append(alert)
+
+    # Durable store — survives restarts. Best-effort: a DB hiccup must never
+    # drop the live alert or crash the capture thread.
+    try:
+        db_insert_alert(alert)
+        if alert_id % 1000 == 0:
+            db_prune_alerts()
+    except Exception as e:
+        print(f"[DB][WARN] Could not persist alert {alert_id}: {e}")
 
     print(f"[{severity.upper():8s}] {alert_type} → {message}")
 
@@ -1056,14 +1255,40 @@ def detect_dns_tunneling(src: str, qname: str, qtype: int):
 
 
 def detect_arp_spoofing(ip: str, mac: str):
-    """One IP suddenly claimed by a different MAC = ARP poisoning / MITM.
+    """One IP claimed by an unexpected MAC = ARP poisoning / MITM.
 
-    Attribution is to the impersonated IP (the attacker forges the source), so
-    this fires as a standalone alert and is not folded into a per-attacker chain.
+    With an asset inventory we know the RIGHT MAC, so we can name the impostor
+    even if the sensor started mid-attack (fixes the first-seen-wins inversion).
+    Without one, we fall back to learn-on-first-sight and flag it as unverified.
     """
     mac = (mac or "").lower()
     if not ip or not mac:
         return
+
+    # Rogue device: an internal IP not in the authorised inventory.
+    if KNOWN_HOSTS and is_internal(ip) and ip not in KNOWN_HOSTS and ip not in _rogue_seen:
+        _rogue_seen.add(ip)
+        generate_alert(
+            "Rogue Host", "medium", ip, None, "ARP",
+            f"Rogue device: {ip} ({mac}) announced on the LAN but is not in the "
+            f"asset inventory — unauthorised host",
+            {"ip": ip, "mac": mac},
+        )
+
+    trusted = TRUSTED_ARP.get(ip)
+    if trusted:
+        # We have ground truth. Any other MAC for this IP is the attacker.
+        if mac != trusted and _pc_should_fire(f"arp:{ip}", ARP_COOLDOWN):
+            generate_alert(
+                "ARP Spoofing", "critical", ip, None, "ARP",
+                f"ARP spoofing CONFIRMED: {ip} should be at {trusted} (asset "
+                f"inventory) but ARP now claims {mac} — {mac} is the impostor / MITM",
+                {"ip": ip, "legitimate_mac": trusted, "impostor_mac": mac,
+                 "verified": True},
+            )
+        return
+
+    # No trust anchor — learn first mapping, flag later conflicts as unverified.
     prev = arp_ip_mac.get(ip)
     if prev is None:
         arp_ip_mac[ip] = mac
@@ -1072,12 +1297,92 @@ def detect_arp_spoofing(ip: str, mac: str):
         if _pc_should_fire(f"arp:{ip}", ARP_COOLDOWN):
             generate_alert(
                 "ARP Spoofing", "high", ip, None, "ARP",
-                f"ARP spoofing: IP {ip} is now claimed by MAC {mac} "
-                f"(was {prev}) — man-in-the-middle / cache poisoning on the LAN",
-                {"ip": ip, "old_mac": prev, "new_mac": mac,
-                 "note": "rarely a legitimate NIC/DHCP change; verify"},
+                f"ARP anomaly: IP {ip} MAC changed {prev} → {mac} — possible MITM "
+                f"(no asset baseline to confirm which is legitimate)",
+                {"ip": ip, "old_mac": prev, "new_mac": mac, "verified": False,
+                 "note": "add this host to assets.json for verified attribution"},
             )
         arp_ip_mac[ip] = mac
+
+
+def detect_distributed_scan(src: str, dst: str, port: int):
+    """Many sources each probing one destination = coordinated / botnet scan
+    that slips under the per-source port-scan threshold."""
+    now = time.time()
+    t = distributed_tracker[dst]
+    if now - t["start"] > DISTRIBUTED_WINDOW:
+        t["srcs"] = defaultdict(set)
+        t["start"] = now
+    t["srcs"][src].add(port)
+    scanning = [s for s, ports in t["srcs"].items() if len(ports) >= DISTRIBUTED_PORTS_MIN]
+    if len(scanning) >= DISTRIBUTED_SRC_MIN and \
+            _pc_should_fire(f"distscan:{dst}", 60):
+        generate_alert(
+            "Distributed Scan", "high", None, dst, "TCP",
+            f"Distributed scan: {len(scanning)} sources coordinated a port scan "
+            f"against {dst} within {DISTRIBUTED_WINDOW}s (each below the single-host "
+            f"threshold)",
+            {"target": dst, "source_count": len(scanning),
+             "sources": sorted(scanning)[:12], "window_seconds": DISTRIBUTED_WINDOW},
+        )
+        distributed_tracker[dst] = {"srcs": defaultdict(set), "start": now}
+
+
+def detect_slow_scan(src: str, port: int):
+    """Distinct ports probed by one source over a LONG horizon — defeats the
+    short stealth-scan window (low-and-slow reconnaissance)."""
+    now = time.time()
+    ports = slowscan_tracker[src]
+    ports[port] = now
+    # Decay: forget ports older than the long horizon.
+    for p in [p for p, ts in ports.items() if now - ts > SLOWSCAN_WINDOW]:
+        del ports[p]
+    if len(ports) >= SLOWSCAN_THRESHOLD and _pc_should_fire(f"slowscan:{src}", 300):
+        generate_alert(
+            "Slow Scan", "medium", src, None, "TCP",
+            f"Low-and-slow scan: {src} probed {len(ports)} distinct ports over "
+            f"up to {SLOWSCAN_WINDOW // 60} min — evading short-window detection",
+            {"distinct_ports": len(ports), "horizon_seconds": SLOWSCAN_WINDOW},
+        )
+        slowscan_tracker[src] = {}
+
+
+def update_baseline(src: str):
+    """Per-source connection-rate EWMA. Flags a source whose activity spikes far
+    above its OWN learned normal — an adaptive alternative to fixed thresholds."""
+    now = time.time()
+    b = baseline_tracker[src]
+    bucket = int(now // BASELINE_BUCKET)
+    if b["bucket"] is None:
+        b["bucket"] = bucket
+    if bucket == b["bucket"]:
+        b["count"] += 1
+        return
+    # Bucket rolled over — evaluate the completed bucket against the baseline.
+    completed = b["count"]
+    ewma, ewvar, samples = b["ewma"], b["ewvar"], b["samples"]
+    if ewma is not None and samples >= BASELINE_MIN_SAMPLES and \
+            completed >= BASELINE_MIN_COUNT:
+        std = ewvar ** 0.5
+        if completed > ewma + BASELINE_K * std and _pc_should_fire(f"baseline:{src}", 120):
+            generate_alert(
+                "Traffic Anomaly", "medium", src, None, "TCP",
+                f"Adaptive baseline: {src} opened {completed} connections in "
+                f"{BASELINE_BUCKET}s vs a learned norm of ~{ewma:.1f} "
+                f"(> {BASELINE_K:.0f}σ) — unusual burst for this host",
+                {"burst": completed, "baseline_mean": round(ewma, 1),
+                 "baseline_std": round(std, 1), "sigma": BASELINE_K},
+            )
+    # Update EWMA/EWVar with the completed bucket, then start a fresh bucket.
+    if ewma is None:
+        b["ewma"] = float(completed)
+    else:
+        diff = completed - ewma
+        b["ewma"] = ewma + BASELINE_ALPHA * diff
+        b["ewvar"] = (1 - BASELINE_ALPHA) * (ewvar + BASELINE_ALPHA * diff * diff)
+    b["samples"] = samples + 1
+    b["bucket"] = bucket
+    b["count"] = 1
 
 
 # ─────────────────────────────────────────────
@@ -1131,6 +1436,9 @@ def process_packet(packet):
             detect_port_scan(src, dst, dport)
             detect_stealth_scan(src, dport)
             detect_syn_flood(src, dst)
+            detect_distributed_scan(src, dst, dport)   # coordinated / botnet scan
+            detect_slow_scan(src, dport)               # low-and-slow recon
+            update_baseline(src)                        # adaptive per-host baseline
             now = time.time()
             handshake_tracker[(src, dst, dport)] = now
             _prune_handshakes(now)
@@ -1263,7 +1571,8 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -1301,10 +1610,15 @@ class ExternalAlert(BaseModel):
 def login(payload: LoginRequest):
     """Exchange username + password for a bearer token."""
     user = db_get_user(payload.username)
-    if user is None or not hmac.compare_digest(
-        user["password"], _hash_password(payload.password)
-    ):
+    if user is None or not _verify_password(payload.password, user["password"]):
         raise HTTPException(status_code=401, detail="Invalid username or password.")
+
+    # Transparently upgrade legacy unsalted-SHA256 hashes to PBKDF2 on login.
+    if _is_legacy_hash(user["password"]):
+        with get_db() as conn:
+            conn.execute("UPDATE users SET password = ? WHERE username = ?",
+                         (_hash_password(payload.password), payload.username))
+        print(f"[AUTH] Upgraded password hash for {payload.username} to PBKDF2.")
 
     token = db_create_session(payload.username, user["role"])
     print(f"[AUTH] Login: {payload.username} (role={user['role']})")
@@ -1333,7 +1647,7 @@ def change_password(
 ):
     """Any logged-in user can change their own password."""
     user = db_get_user(session["username"])
-    if not hmac.compare_digest(user["password"], _hash_password(payload.current_password)):
+    if not _verify_password(payload.current_password, user["password"]):
         raise HTTPException(status_code=401, detail="Current password is incorrect.")
     if len(payload.new_password) < 8:
         raise HTTPException(status_code=400, detail="New password must be at least 8 characters.")
@@ -1498,32 +1812,66 @@ def get_intrusions(session: dict = Depends(require_permission("view_alerts"))):
 
 # ── Model Endpoint ────────────────────────────
 
+def _read_json(path: Path) -> Optional[dict]:
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (FileNotFoundError, ValueError, OSError):
+        return None
+
+
+def _model_row(name: str, meta: dict, active: bool) -> dict:
+    """Flatten a CIC-IDS trainer's metadata into a comparison-table row."""
+    m = meta.get("metrics", {})
+    return {
+        "name":              name,
+        "active":            active,
+        "accuracy":          m.get("accuracy"),
+        "macro_f1":          m.get("macro_f1"),
+        "balanced_accuracy": m.get("balanced_accuracy"),
+        "detect":            m.get("binary_recall"),   # any-attack recall
+        "fpr":               m.get("binary_fpr"),
+        "n_features":        meta.get("n_features") or len(
+                                 meta.get("numeric_features", [])) + len(
+                                 meta.get("categorical_features", [])),
+    }
+
+
 @app.get("/model/info", tags=["System"])
 def model_info(session: dict = Depends(require_auth)):
-    """Serve the ML model's honestly-evaluated metrics for the dashboard.
+    """Serve the ML models' honestly-evaluated CIC-IDS2017 metrics for the UI.
 
-    Reads the metadata written by train_random_forest_v2.py so the UI reflects
-    real KDDTest+ performance instead of hardcoded placeholder numbers.
+    Reports both retrained models: Model B (live schema, 13 packet-derivable
+    features) which the live sensor actually serves, and Model A (full 78 flow
+    features) as the stronger reference. Metadata is written by
+    train_cicids_live.py / train_cicids_flow.py.
     """
-    meta_path = Path("models/rf_live_features.json")
-    if not meta_path.exists():
+    live = _read_json(Path("models/cicids_live_meta.json"))   # Model B (served)
+    flow = _read_json(Path("models/cicids_flow_meta.json"))   # Model A (reference)
+
+    if live is None and flow is None:
         raise HTTPException(
             status_code=404,
-            detail="Model metadata not found. Run: python train_random_forest_v2.py",
+            detail="Model metadata not found. Run: python train_cicids_live.py "
+                   "and python train_cicids_flow.py",
         )
-    try:
-        with open(meta_path) as f:
-            meta = json.load(f)
-    except (ValueError, OSError) as e:
-        raise HTTPException(status_code=500, detail=f"Could not read metadata: {e}")
 
+    models = []
+    if live is not None:
+        models.append(_model_row(
+            "HistGradientBoosting · live schema (13 feat)", live, active=True))
+    if flow is not None:
+        models.append(_model_row(
+            "HistGradientBoosting · full flow (78 feat)", flow, active=False))
+
+    active_meta = live or flow
     return {
-        "models":             meta.get("models", []),
-        "feature_importance": meta.get("feature_importance", []),
-        "decision_threshold": meta.get("decision_threshold"),
-        "trained_on":         meta.get("trained_on"),
-        "evaluated_on":       meta.get("evaluated_on"),
-        "test_samples":       meta.get("test_samples"),
+        "models":             models,
+        "feature_importance": active_meta.get("feature_importance", []),
+        "classes":            active_meta.get("classes", []),
+        "trained_on":         "CIC-IDS2017",
+        "evaluated_on":       "CIC-IDS2017 hold-out (25%)",
+        "test_samples":       active_meta.get("test_samples"),
     }
 
 
@@ -1549,18 +1897,19 @@ def get_alerts(
 
 @app.delete("/alerts", tags=["Alerts"])
 def clear_alerts(session: dict = Depends(require_permission("delete_alerts"))):
-    """Admin only."""
+    """Admin only. Clears the in-memory cache AND the durable store."""
     with alerts_lock:
         count = len(alerts)
         alerts.clear()
         system_stats["alerts_generated"] = 0
+    db_clear_alerts()
     with correlation_lock:
         correlation_tracker.clear()
     with intrusion_lock:
         intrusion_tracker.clear()
     with pc_lock:
         _recent_pc_alerts.clear()
-    print(f"[NIDS] {session['username']} cleared {count} alerts.")
+    print(f"[NIDS] {session['username']} cleared {count} alerts (memory + disk).")
     return {"status": "ok", "cleared": count}
 
 
@@ -1638,6 +1987,27 @@ def control_stop(session: dict = Depends(require_permission("control_sniffer")))
 @app.on_event("startup")
 def on_startup():
     init_db()
+    load_asset_inventory()
+
+    # Restore alerts from the durable store so a restart keeps history + the
+    # alert-id counter (avoids id collisions with persisted rows).
+    try:
+        recent = db_load_recent_alerts(MAX_ALERTS_STORED)
+        with alerts_lock:
+            alerts.clear()
+            alerts.extend(recent)
+            system_stats["alerts_generated"] = db_max_alert_id()
+        total = db_alert_count()
+        if total:
+            print(f"[NIDS] Restored {len(recent)} recent alerts into cache "
+                  f"({total} total on disk).")
+    except Exception as e:
+        print(f"[DB][WARN] Could not restore alerts: {e}")
+
+    if SENSOR_API_KEY == _DEFAULT_SENSOR_KEY:
+        print("[NIDS][WARN] Using the PUBLIC default sensor key. Set NIDS_SENSOR_KEY "
+              "(and match it in the sensors) before any real deployment.")
+
     print("[NIDS] main.py ready. POST /control/start to begin capture.")
     print("[NIDS] ML alerts expected from live_ids_v2.py via POST /alert")
 

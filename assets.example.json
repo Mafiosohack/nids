@@ -1,0 +1,20 @@
+{
+  "_comment": "Copy this file to assets.json and edit for your network. It gives ARP detection a trust anchor (so it names the impostor, not just 'a MAC changed') and enables rogue-device detection. main.py loads assets.json on startup; without it, ARP detection falls back to learn-on-first-sight.",
+
+  "gateway": {
+    "ip": "192.168.1.1",
+    "mac": "aa:bb:cc:11:22:33"
+  },
+
+  "trusted_arp": {
+    "192.168.1.10": "de:ad:be:ef:00:10",
+    "192.168.1.20": "de:ad:be:ef:00:20"
+  },
+
+  "known_hosts": [
+    "192.168.1.1",
+    "192.168.1.10",
+    "192.168.1.20",
+    "192.168.1.50"
+  ]
+}

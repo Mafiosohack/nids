@@ -26,7 +26,15 @@ models/*.json
 # Dataset / capture files
 data/*.csv
 data/*.json
+data/**/*.csv
 *.pcap
+
+# CIC-IDS2017 raw dataset (large; download separately)
+MachineLearningCVE/
+TrafficLabelling_/
+data/cicids2017/
+*.zip
+*.md5
 
 # Runtime databases
 *.db
