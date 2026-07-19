@@ -86,9 +86,11 @@ default is never used. (The user DB is `nids_users.db`, created automatically.)
 The sensor serves the CIC-IDS2017 **live-schema multiclass** model
 (`models/cicids_live.pkl`) and predicts the specific attack type per flow.
 
-**Offline replay** (no capture stack needed — good for a first test):
+**Offline replay** (no capture stack needed — good for a first test). The demo
+pcap is gitignored, so generate it once, then replay it:
 
 ```powershell
+venv\Scripts\python.exe make_sample_pcap.py                 # writes data/samples/demo_traffic.pcap
 venv\Scripts\python.exe live_ids_v2.py --pcap data/samples/demo_traffic.pcap
 ```
 
