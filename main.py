@@ -70,6 +70,52 @@ MAX_ALERTS_STORED       = 500
 CORRELATION_EVENT_LIMIT = 15
 
 # ─────────────────────────────────────────────
+#  POST-COMPROMISE DETECTION  (the "attacker is inside" layer)
+# ─────────────────────────────────────────────
+# What counts as "our" network. Anything else is external/Internet.
+INTERNAL_PREFIXES = ("192.168.", "10.", "172.16.", "172.17.", "172.18.",
+                     "172.19.", "172.20.", "172.21.", "172.22.", "172.23.",
+                     "172.24.", "172.25.", "172.26.", "172.27.", "172.28.",
+                     "172.29.", "172.30.", "172.31.")
+
+# Breach / foothold: a source that brute-forced an auth port and then
+# successfully established a session on that same host:port = they got in.
+BREACH_MEMORY_SEC       = 180    # how long a brute-forced target stays "hot"
+
+# Lateral movement: one internal host reaching many internal hosts on admin ports.
+LATERAL_PORTS           = {22, 23, 135, 139, 445, 1433, 3306, 3389, 5432,
+                           5985, 5986, 5900}
+LATERAL_THRESHOLD       = 6      # distinct internal targets → alert
+LATERAL_WINDOW          = 120    # seconds
+
+# Data exfiltration (network): sustained outbound bytes from an internal host
+# to an external IP. This is OUR packet-based detector (separate from the
+# cloud VPC-flow-log one in cloud_log_sensor.py).
+EXFIL_BYTES_THRESHOLD   = 50_000_000   # 50 MB internal→external in window
+EXFIL_WINDOW            = 300          # seconds
+
+# C2 beaconing: repeated, regularly-timed outbound connections to one external IP.
+BEACON_MIN_HITS         = 6      # connections needed to judge periodicity
+BEACON_WINDOW           = 900    # seconds of history kept per (src,dst)
+BEACON_MAX_CV           = 0.25   # coeff. of variation of intervals below this = regular
+BEACON_MIN_INTERVAL     = 2.0    # ignore bursts faster than this (not a beacon)
+
+# Reverse shell: an internal host initiating an OUTBOUND session on a port that
+# is not normal client traffic — the hallmark of a callback to the attacker.
+COMMON_OUTBOUND_PORTS   = {80, 443, 53, 123, 22, 25, 587, 465, 993, 995,
+                           110, 143, 8080, 8443, 3128}
+
+# Data staging (collection): one internal host pulling large data FROM many
+# internal hosts before exfiltration.
+STAGING_SRC_THRESHOLD   = 5              # distinct internal sources feeding it
+STAGING_BYTES_THRESHOLD = 20_000_000     # total bytes aggregated in window
+STAGING_WINDOW          = 300            # seconds
+
+# Handshake table housekeeping (pending SYNs waiting for SYN-ACK).
+HANDSHAKE_TTL_SEC       = 30
+HANDSHAKE_MAX_ENTRIES   = 20000
+
+# ─────────────────────────────────────────────
 #  AUTH CONFIG
 # ─────────────────────────────────────────────
 # Sensor pre-shared key — must match SENSOR_API_KEY in live_ids_v2.py
@@ -241,6 +287,29 @@ udp_amp_tracker    = defaultdict(lambda: {"timestamps": []})
 correlation_tracker = defaultdict(lambda: {"events": []})
 correlation_lock    = threading.Lock()
 
+# ── Post-compromise trackers ──────────────────
+# src → {(dst, port): last_bruteforce_ts}  — targets this src recently brute-forced
+breach_hot_targets  = defaultdict(dict)
+# Pending TCP handshakes: (initiator, target, target_port) → syn_ts
+handshake_tracker: Dict[tuple, float] = {}
+# internal src → {"dests": set(), "timestamps": []}
+lateral_tracker     = defaultdict(lambda: {"dests": set(), "timestamps": []})
+# internal src → {"bytes": int, "timestamps": [], "top_dst": str}
+exfil_tracker       = defaultdict(lambda: {"bytes": 0, "timestamps": [], "top": None})
+# src → dst(external) → [connection timestamps]
+beacon_tracker      = defaultdict(lambda: defaultdict(list))
+# internal dst → {"srcs": {src: bytes}, "timestamps": []}
+staging_tracker     = defaultdict(lambda: {"srcs": defaultdict(int), "timestamps": []})
+# de-dupe: don't re-fire the same post-compromise verdict every packet
+_recent_pc_alerts: Dict[str, float] = {}
+pc_lock             = threading.Lock()
+
+# ── Kill-chain / intrusion state (per host = suspected attacker or victim) ──
+# host → {"stages": {stage: {"first": ts, "last": ts, "count": n, "detail": str}},
+#         "first_seen": ts, "last_activity": ts}
+intrusion_tracker: Dict[str, dict] = {}
+intrusion_lock    = threading.Lock()
+
 system_stats = {
     "packets_captured": 0,
     "alerts_generated": 0,
@@ -250,6 +319,128 @@ system_stats = {
 
 sniffer_thread: Optional[threading.Thread] = None
 sniffer_stop_event = threading.Event()
+
+# ─────────────────────────────────────────────
+#  MITRE ATT&CK MAPPING + KILL-CHAIN MODEL
+# ─────────────────────────────────────────────
+# Each detectable alert type → (kill-chain stage, MITRE tactic, MITRE technique id).
+# Stages are ordered; a host that advances through them is an active intrusion.
+KILL_CHAIN_ORDER = [
+    "reconnaissance",
+    "credential_access",
+    "initial_access",
+    "privilege_escalation",   # populated by the Phase-2 host log sensor
+    "persistence",            # populated by the Phase-2 host log sensor
+    "command_and_control",
+    "lateral_movement",
+    "collection",
+    "exfiltration",
+]
+
+STAGE_LABELS = {
+    "reconnaissance":       "Reconnaissance",
+    "credential_access":    "Credential Access",
+    "initial_access":       "Initial Access (BREACH)",
+    "privilege_escalation": "Privilege Escalation (ROOT)",
+    "persistence":          "Persistence",
+    "command_and_control":  "Command & Control",
+    "lateral_movement":     "Lateral Movement",
+    "collection":           "Collection / Staging",
+    "exfiltration":         "Exfiltration",
+}
+
+# alert_type → (stage, tactic name, technique id)
+ATTACK_MAP = {
+    "Port Scan":            ("reconnaissance",      "Discovery",           "T1046"),
+    "Stealth Scan":         ("reconnaissance",      "Discovery",           "T1046"),
+    "TCP Signature":        ("reconnaissance",      "Discovery",           "T1046"),
+    "Brute Force Attempt":  ("credential_access",   "Credential Access",   "T1110"),
+    "Breach":               ("initial_access",      "Initial Access",      "T1078"),
+    "Privilege Escalation": ("privilege_escalation","Privilege Escalation","T1548"),
+    "C2 Beaconing":         ("command_and_control", "Command and Control", "T1071"),
+    "Reverse Shell":        ("command_and_control", "Command and Control", "T1059"),
+    "Lateral Movement":     ("lateral_movement",    "Lateral Movement",    "T1021"),
+    "Data Staging":         ("collection",          "Collection",          "T1074"),
+    "Data Exfiltration":    ("exfiltration",        "Exfiltration",        "T1041"),
+    # Cloud log sensor (cloud_log_sensor.py) alert types → same unified kill chain.
+    "Cloud Port Scan":      ("reconnaissance",      "Discovery",           "T1046"),
+    "Cloud Recon":          ("reconnaissance",      "Discovery",           "T1046"),
+    "Cloud Brute Force":    ("credential_access",   "Credential Access",   "T1110"),
+    "Impossible Travel":    ("initial_access",      "Initial Access",      "T1078"),
+    # Host auth-log sensor (host_log_sensor.py) — the HONEST source for
+    # confirmed logins, root access and persistence (not visible on the wire).
+    "Host Brute Force":     ("credential_access",   "Credential Access",   "T1110"),
+    "SSH Login":            ("initial_access",      "Valid Accounts",      "T1078"),
+    "Root Access":          ("privilege_escalation","Privilege Escalation","T1548"),
+    "Persistence":          ("persistence",         "Persistence",         "T1136"),
+    "Sensitive File Access":("collection",          "Collection",          "T1005"),
+}
+
+
+def _mitre_for(alert_type: str):
+    """Return (stage, tactic, technique) for an alert type, or (None, None, None)."""
+    return ATTACK_MAP.get(alert_type, (None, None, None))
+
+
+def update_intrusion_state(alert_type: str, host: Optional[str], detail: str):
+    """Record that `host` reached the kill-chain stage implied by `alert_type`.
+
+    `host` is the attacker/compromised endpoint we attribute the activity to
+    (the alert source). This is what powers the per-host Intrusion Status panel.
+    """
+    stage, _, _ = _mitre_for(alert_type)
+    if not stage or not host:
+        return
+    now = time.time()
+    announce = False
+    stages_snapshot: List[str] = []
+    with intrusion_lock:
+        rec = intrusion_tracker.get(host)
+        if rec is None:
+            rec = {"stages": {}, "first_seen": now, "last_activity": now,
+                   "announced": False}
+            intrusion_tracker[host] = rec
+        rec["last_activity"] = now
+        st = rec["stages"].get(stage)
+        if st is None:
+            rec["stages"][stage] = {"first": now, "last": now, "count": 1, "detail": detail}
+        else:
+            st["last"] = now
+            st["count"] += 1
+            st["detail"] = detail
+        # Decide whether this host just became a full active intrusion.
+        if not rec["announced"] and intrusion_status(rec) == "ACTIVE INTRUSION":
+            rec["announced"] = True
+            announce = True
+            stages_snapshot = [s for s in KILL_CHAIN_ORDER if s in rec["stages"]]
+
+    # Fire the meta-alert OUTSIDE the lock (generate_alert re-enters this fn).
+    if announce:
+        chain = " → ".join(STAGE_LABELS[s] for s in stages_snapshot)
+        generate_alert(
+            "Active Intrusion", "critical", host, None, "Multiple",
+            f"ACTIVE INTRUSION: {host} has progressed through the kill chain "
+            f"[{chain}] — attacker is confirmed inside and operating",
+            {"kill_chain": stages_snapshot, "stage_count": len(stages_snapshot)},
+            _from_correlation=True,
+        )
+
+
+def intrusion_status(rec: dict) -> str:
+    """Classify a host's kill-chain progress into a headline status."""
+    stages = set(rec["stages"].keys())
+    post_access = {"privilege_escalation", "persistence", "command_and_control",
+                   "lateral_movement", "collection", "exfiltration"}
+    if "initial_access" in stages and (stages & post_access):
+        return "ACTIVE INTRUSION"
+    if "initial_access" in stages:
+        return "BREACHED"
+    if "credential_access" in stages:
+        return "UNDER ATTACK"
+    if stages:
+        return "PROBING"
+    return "QUIET"
+
 
 # ─────────────────────────────────────────────
 #  ALERT ENGINE
@@ -272,6 +463,15 @@ def generate_alert(
     _from_correlation: bool = False,
 ) -> Dict:
     alert_id = _new_alert_id()
+    details = dict(details or {})
+
+    # Tag every alert with its kill-chain stage + MITRE ATT&CK tactic/technique.
+    stage, tactic, technique = _mitre_for(alert_type)
+    if stage:
+        details.setdefault("kill_chain_stage", stage)
+        details.setdefault("mitre_tactic", tactic)
+        details.setdefault("mitre_technique", technique)
+
     alert = {
         "id":        alert_id,
         "type":      alert_type,
@@ -281,13 +481,16 @@ def generate_alert(
         "protocol":  protocol,
         "message":   message,
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "details":   details or {},
+        "details":   details,
     }
 
     with alerts_lock:
         alerts.append(alert)
 
     print(f"[{severity.upper():8s}] {alert_type} → {message}")
+
+    # Advance the per-host kill-chain state (drives the Intrusion Status panel).
+    update_intrusion_state(alert_type, src, message)
 
     if not _from_correlation and src:
         with correlation_lock:
@@ -478,6 +681,8 @@ def detect_brute_force(src: str, dst: str, port: int):
             f"Brute force: {src} → {dst}:{port}, {t['attempts']} attempts in {BRUTE_FORCE_WINDOW}s",
             {"port": port, "attempt_count": t["attempts"]},
         )
+        # Mark this target as "hot": if a session later establishes here, it's a breach.
+        note_bruteforce_target(src, dst, port)
         t["attempts"] = 0
         t["timestamps"].clear()
 
@@ -501,6 +706,234 @@ def detect_udp_amplification(src: str, dst: str, dst_port: int, pkt_len: int):
         t["timestamps"].clear()
 
 # ─────────────────────────────────────────────
+#  POST-COMPROMISE DETECTION HELPERS
+# ─────────────────────────────────────────────
+def is_internal(ip: str) -> bool:
+    """True if an IP belongs to our network (RFC1918 / configured prefixes)."""
+    return ip.startswith(INTERNAL_PREFIXES)
+
+
+def _prune(timestamps: list, window: float, now: float) -> list:
+    return [t for t in timestamps if now - t < window]
+
+
+def _coeff_of_variation(intervals: List[float]) -> float:
+    """Std-dev / mean of inter-arrival gaps. Low = very regular = beacon-like."""
+    if len(intervals) < 2:
+        return 999.0
+    mean = sum(intervals) / len(intervals)
+    if mean <= 0:
+        return 999.0
+    var = sum((x - mean) ** 2 for x in intervals) / len(intervals)
+    return (var ** 0.5) / mean
+
+
+def _pc_should_fire(key: str, cooldown: float = 60.0) -> bool:
+    """Rate-limit a post-compromise verdict so it fires once per cooldown."""
+    now = time.time()
+    with pc_lock:
+        last = _recent_pc_alerts.get(key, 0.0)
+        if now - last < cooldown:
+            return False
+        _recent_pc_alerts[key] = now
+        return True
+
+
+# A session with a just-brute-forced service that moves clearly more data than a
+# failed-auth teardown = the login worked. Tuned above a couple of SSH banners.
+BREACH_SESSION_BYTES = 12000
+
+
+def note_bruteforce_target(src: str, dst: str, port: int):
+    """Remember that `src` brute-forced `dst:port`. We then watch traffic with
+    that target: a sustained, data-heavy session there implies the login worked.
+
+    (TCP completes even for FAILED logins — auth is above TCP — so mere
+    connection establishment is not proof. Byte volume of the session is the
+    honest packet-level discriminator between a failed attempt and a breach.)"""
+    breach_hot_targets[src][(dst, port)] = {"ts": time.time(), "bytes": 0, "fired": False}
+
+
+# ─────────────────────────────────────────────
+#  POST-COMPROMISE DETECTORS
+# ─────────────────────────────────────────────
+def track_hot_target_traffic(src: str, dst: str, sport: int, dport: int, plen: int):
+    """Accumulate bytes exchanged with a brute-forced ("hot") target. When a
+    single session there grows past BREACH_SESSION_BYTES, treat it as a breach.
+
+    Matches traffic in either direction of the session with the hot target."""
+    now = time.time()
+    initiator = server = None
+    port = 0
+    rec = None
+    # client → server:  src=attacker, dst=target, dport=service port
+    r = breach_hot_targets.get(src, {}).get((dst, dport))
+    if r is not None:
+        initiator, server, port, rec = src, dst, dport, r
+    else:
+        # server → client:  src=target(service), dst=attacker, sport=service port
+        r = breach_hot_targets.get(dst, {}).get((src, sport))
+        if r is not None:
+            initiator, server, port, rec = dst, src, sport, r
+    if rec is None:
+        return
+    if now - rec["ts"] > BREACH_MEMORY_SEC:
+        breach_hot_targets[initiator].pop((server, port), None)
+        return
+    rec["bytes"] += plen
+    if rec["bytes"] >= BREACH_SESSION_BYTES and not rec["fired"] and \
+            _pc_should_fire(f"breach:{initiator}:{server}:{port}", cooldown=180):
+        rec["fired"] = True
+        kb = round(rec["bytes"] / 1024, 1)
+        generate_alert(
+            "Breach", "critical", initiator, server, "TCP",
+            f"SUSPECTED COMPROMISE: {initiator} opened a sustained session on "
+            f"{server}:{port} ({kb} KB) right after brute-forcing it — "
+            f"attacker appears to be INSIDE",
+            {"target_port": port, "session_bytes": rec["bytes"],
+             "evidence": "data-heavy session immediately after brute-force storm",
+             "confidence": "medium (network-inferred; confirm via host auth logs — Phase 2)"},
+        )
+
+
+def detect_lateral_movement_net(initiator: str, target: str, tport: int):
+    """Internal host establishing sessions to many internal hosts on admin ports."""
+    if tport not in LATERAL_PORTS:
+        return
+    if not (is_internal(initiator) and is_internal(target)):
+        return
+    now = time.time()
+    t = lateral_tracker[initiator]
+    t["timestamps"] = _prune(t["timestamps"], LATERAL_WINDOW, now)
+    t["timestamps"].append(now)
+    t["dests"].add(target)
+    if len(t["dests"]) >= LATERAL_THRESHOLD and \
+            _pc_should_fire(f"lateral:{initiator}", cooldown=90):
+        generate_alert(
+            "Lateral Movement", "critical", initiator, None, "TCP",
+            f"Lateral movement: internal host {initiator} opened sessions to "
+            f"{len(t['dests'])} internal hosts on admin ports in {LATERAL_WINDOW}s",
+            {"internal_targets": len(t["dests"]), "window_seconds": LATERAL_WINDOW,
+             "targets": sorted(t["dests"])[:12]},
+        )
+        lateral_tracker[initiator] = {"dests": set(), "timestamps": []}
+
+
+def detect_reverse_shell(initiator: str, target: str, tport: int):
+    """Internal host initiating an OUTBOUND session to the Internet on a port
+    that is not normal client traffic — a callback to the attacker."""
+    if not (is_internal(initiator) and not is_internal(target)):
+        return
+    if tport in COMMON_OUTBOUND_PORTS:
+        return
+    if _pc_should_fire(f"revshell:{initiator}:{target}:{tport}", cooldown=120):
+        generate_alert(
+            "Reverse Shell", "high", initiator, target, "TCP",
+            f"Reverse-shell indicator: internal host {initiator} called OUT to "
+            f"{target}:{tport} (non-standard port) — possible attacker callback",
+            {"target_port": tport, "direction": "internal→external",
+             "note": "confirm against known-good egress"},
+        )
+
+
+def detect_c2_beacon(initiator: str, target: str):
+    """Repeated, regularly-timed outbound connections to one external IP."""
+    if not (is_internal(initiator) and not is_internal(target)):
+        return
+    now = time.time()
+    hist = beacon_tracker[initiator][target]
+    hist[:] = _prune(hist, BEACON_WINDOW, now)
+    hist.append(now)
+    if len(hist) < BEACON_MIN_HITS:
+        return
+    intervals = [hist[i] - hist[i - 1] for i in range(1, len(hist))]
+    if any(iv < BEACON_MIN_INTERVAL for iv in intervals):
+        return  # too bursty to be a heartbeat
+    cv = _coeff_of_variation(intervals)
+    if cv <= BEACON_MAX_CV and _pc_should_fire(f"beacon:{initiator}:{target}", cooldown=300):
+        avg = sum(intervals) / len(intervals)
+        generate_alert(
+            "C2 Beaconing", "high", initiator, target, "TCP",
+            f"C2 beaconing: {initiator} → {target} every ~{avg:.0f}s "
+            f"({len(hist)} connections, jitter CV={cv:.2f}) — command-and-control pattern",
+            {"beacon_interval_sec": round(avg, 1), "connections": len(hist),
+             "regularity_cv": round(cv, 3)},
+        )
+        beacon_tracker[initiator][target] = []
+
+
+def detect_data_exfiltration_net(src: str, dst: str, plen: int):
+    """Sustained outbound bytes from an internal host to an external IP."""
+    if not (is_internal(src) and not is_internal(dst)):
+        return
+    now = time.time()
+    t = exfil_tracker[src]
+    t["timestamps"] = _prune(t["timestamps"], EXFIL_WINDOW, now)
+    if not t["timestamps"]:
+        t["bytes"] = 0
+    t["timestamps"].append(now)
+    t["bytes"] += plen
+    t["top"] = dst
+    if t["bytes"] > EXFIL_BYTES_THRESHOLD and \
+            _pc_should_fire(f"exfil:{src}", cooldown=120):
+        mb = round(t["bytes"] / 1_000_000, 1)
+        generate_alert(
+            "Data Exfiltration", "critical", src, dst, "Multiple",
+            f"Data exfiltration: internal host {src} sent {mb} MB to external "
+            f"IP {dst} within {EXFIL_WINDOW}s",
+            {"bytes_transferred": t["bytes"], "megabytes": mb, "destination": dst,
+             "window_seconds": EXFIL_WINDOW},
+        )
+        exfil_tracker[src] = {"bytes": 0, "timestamps": [], "top": None}
+
+
+def detect_data_staging(src: str, dst: str, plen: int):
+    """One internal host aggregating large data FROM many internal hosts."""
+    if not (is_internal(src) and is_internal(dst)):
+        return
+    now = time.time()
+    t = staging_tracker[dst]
+    t["timestamps"] = _prune(t["timestamps"], STAGING_WINDOW, now)
+    if not t["timestamps"]:
+        t["srcs"] = defaultdict(int)
+    t["timestamps"].append(now)
+    t["srcs"][src] += plen
+    total = sum(t["srcs"].values())
+    if len(t["srcs"]) >= STAGING_SRC_THRESHOLD and total >= STAGING_BYTES_THRESHOLD \
+            and _pc_should_fire(f"staging:{dst}", cooldown=180):
+        mb = round(total / 1_000_000, 1)
+        generate_alert(
+            "Data Staging", "high", dst, None, "TCP",
+            f"Data staging: internal host {dst} aggregated {mb} MB from "
+            f"{len(t['srcs'])} internal hosts in {STAGING_WINDOW}s — pre-exfil collection",
+            {"source_hosts": len(t["srcs"]), "megabytes": mb,
+             "window_seconds": STAGING_WINDOW},
+        )
+        staging_tracker[dst] = {"srcs": defaultdict(int), "timestamps": []}
+
+
+def on_connection_established(initiator: str, target: str, tport: int):
+    """Called when a TCP handshake completes (SYN → SYN-ACK seen).
+
+    Establishment (not just a SYN probe) is what separates a real session
+    from reconnaissance — so the highest-signal post-compromise checks run here.
+    (Breach itself is byte-driven, handled in track_hot_target_traffic.)
+    """
+    detect_lateral_movement_net(initiator, target, tport)
+    detect_reverse_shell(initiator, target, tport)
+    detect_c2_beacon(initiator, target)
+
+
+def _prune_handshakes(now: float):
+    """Drop stale pending SYNs so the handshake table can't grow unbounded."""
+    if len(handshake_tracker) < HANDSHAKE_MAX_ENTRIES:
+        return
+    stale = [k for k, ts in handshake_tracker.items() if now - ts > HANDSHAKE_TTL_SEC]
+    for k in stale:
+        handshake_tracker.pop(k, None)
+
+
+# ─────────────────────────────────────────────
 #  PACKET PROCESSOR
 # ─────────────────────────────────────────────
 def process_packet(packet):
@@ -509,16 +942,24 @@ def process_packet(packet):
     if not packet.haslayer(IP):
         return
 
-    src = packet[IP].src
-    dst = packet[IP].dst
+    src  = packet[IP].src
+    dst  = packet[IP].dst
+    plen = len(packet)
 
     # DDoS check runs on every IP packet
     detect_ddos(src, dst)
+
+    # Byte-volume post-compromise detectors (protocol-agnostic)
+    detect_data_exfiltration_net(src, dst, plen)   # internal → external, mass upload
+    detect_data_staging(src, dst, plen)            # internal → internal aggregation
 
     if packet.haslayer(TCP):
         tcp   = packet[TCP]
         flags = int(tcp.flags)
         dport = tcp.dport
+        sport = tcp.sport
+        syn   = bool(flags & 0x02)
+        ack   = bool(flags & 0x10)
 
         # Signature detection
         sig = check_tcp_signature(flags)
@@ -529,15 +970,24 @@ def process_packet(packet):
                 {"signature": sig, "flags": flags, "dst_port": dport},
             )
 
-        if flags & 0x02:  # SYN
+        if syn and not ack:          # pure SYN — connection initiation / probe
             detect_port_scan(src, dst, dport)
             detect_stealth_scan(src, dport)
             detect_syn_flood(src, dst)
+            now = time.time()
+            handshake_tracker[(src, dst, dport)] = now
+            _prune_handshakes(now)
+        elif syn and ack:            # SYN-ACK — server accepted; handshake completes
+            # The originating SYN was (client=dst, server=src, service port=sport).
+            if handshake_tracker.pop((dst, src, sport), None) is not None:
+                on_connection_established(initiator=dst, target=src, tport=sport)
 
-        if flags & 0x10:  # ACK
+        if ack:
             syn_tracker[src]["ack"] += 1
 
         detect_brute_force(src, dst, dport)
+        # Watch data volume with any brute-forced ("hot") target → breach signal.
+        track_hot_target_traffic(src, dst, sport, dport, plen)
 
     elif packet.haslayer(UDP):
         udp = packet[UDP]
@@ -825,6 +1275,57 @@ def status(session: dict = Depends(require_auth)):
     }
 
 
+# ── Intrusion / Kill-Chain Endpoint ───────────
+# Order used to rank hosts by how deep into the kill chain they are.
+_STATUS_RANK = {
+    "ACTIVE INTRUSION": 0,
+    "BREACHED":         1,
+    "UNDER ATTACK":     2,
+    "PROBING":          3,
+    "QUIET":            4,
+}
+
+
+@app.get("/intrusions", tags=["Alerts"])
+def get_intrusions(session: dict = Depends(require_permission("view_alerts"))):
+    """Per-host kill-chain progression — powers the Intrusion Status panel.
+
+    Answers the operator's real question: is this host just poking at us, or is
+    it INSIDE, moving laterally, and stealing data?
+    """
+    now = time.time()
+    out = []
+    with intrusion_lock:
+        for host, rec in intrusion_tracker.items():
+            status = intrusion_status(rec)
+            reached = []
+            for stage in KILL_CHAIN_ORDER:
+                if stage in rec["stages"]:
+                    st = rec["stages"][stage]
+                    reached.append({
+                        "stage":   stage,
+                        "label":   STAGE_LABELS[stage],
+                        "count":   st["count"],
+                        "detail":  st["detail"],
+                        "age_sec": round(now - st["last"], 1),
+                    })
+            out.append({
+                "host":            host,
+                "status":          status,
+                "stages_reached":  reached,
+                "stage_count":     len(reached),
+                "furthest_stage":  reached[-1]["label"] if reached else None,
+                "first_seen_sec":  round(now - rec["first_seen"], 1),
+                "last_activity_sec": round(now - rec["last_activity"], 1),
+            })
+    out.sort(key=lambda h: (_STATUS_RANK.get(h["status"], 9), -h["stage_count"]))
+    # Full stage catalogue so the UI can render the whole chain, filled or not.
+    return {
+        "chain": [{"stage": s, "label": STAGE_LABELS[s]} for s in KILL_CHAIN_ORDER],
+        "hosts": out,
+    }
+
+
 # ── Model Endpoint ────────────────────────────
 
 @app.get("/model/info", tags=["System"])
@@ -885,6 +1386,10 @@ def clear_alerts(session: dict = Depends(require_permission("delete_alerts"))):
         system_stats["alerts_generated"] = 0
     with correlation_lock:
         correlation_tracker.clear()
+    with intrusion_lock:
+        intrusion_tracker.clear()
+    with pc_lock:
+        _recent_pc_alerts.clear()
     print(f"[NIDS] {session['username']} cleared {count} alerts.")
     return {"status": "ok", "cleared": count}
 

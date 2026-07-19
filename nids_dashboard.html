@@ -257,6 +257,38 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
 
+/* ── Intrusion Status / Kill-Chain panel ── */
+.intrusion-panel{margin-bottom:14px;border-color:#3a1520}
+.intrusion-panel .panel-header{border-bottom-color:#3a1520}
+.ki-summary{display:flex;gap:8px;align-items:center;font-family:var(--font-mono);font-size:11px}
+.ki-summary .ki-count{font-weight:700}
+.intrusion-list{display:flex;flex-direction:column;gap:8px;max-height:340px;overflow-y:auto;padding:4px}
+.ki-empty{text-align:center;color:var(--text-dim);padding:22px;font-size:12px}
+.ki-empty .ki-ok{color:var(--green);font-size:13px;font-weight:600;letter-spacing:.5px}
+.ki-row{display:grid;grid-template-columns:170px 150px 1fr;gap:12px;align-items:center;
+  padding:10px 12px;background:#141a24;border:1px solid #26303f;border-left-width:4px;border-radius:8px}
+.ki-row.st-active{border-color:#ef4444;background:#1d1417}
+.ki-row.st-breach{border-color:#f97316;background:#1d1712}
+.ki-row.st-attack{border-color:#f59e0b;background:#1c1a12}
+.ki-host{font-family:var(--font-mono);font-size:13px;font-weight:700;color:#f1f5f9}
+.ki-host .ki-sub{display:block;font-size:9px;font-weight:400;color:#8b99ad;margin-top:2px}
+.ki-reached{font-family:var(--font-mono);font-size:9px;color:#9aa7ba;margin-top:5px}
+.ki-badge{font-family:var(--font-mono);font-size:10px;font-weight:700;letter-spacing:.5px;
+  padding:5px 8px;border-radius:5px;text-align:center;white-space:nowrap}
+.ki-badge.st-active{background:rgba(239,68,68,.25);color:#fee2e2;border:1px solid #ef4444;animation:kipulse 1.6s ease-in-out infinite}
+.ki-badge.st-breach{background:rgba(249,115,22,.22);color:#ffedd5;border:1px solid #f97316}
+.ki-badge.st-attack{background:rgba(245,158,11,.20);color:#fef3c7;border:1px solid #f59e0b}
+.ki-badge.st-probe{background:rgba(59,130,246,.20);color:#dbeafe;border:1px solid #3b82f6}
+@keyframes kipulse{0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,.5)}50%{box-shadow:0 0 0 4px rgba(239,68,68,0)}}
+.ki-chain{display:flex;align-items:center;gap:0;flex-wrap:wrap}
+.ki-step{display:flex;align-items:center;gap:4px;font-family:var(--font-mono);font-size:9px}
+.ki-dot{width:9px;height:9px;border-radius:50%;background:#2a3444;border:1px solid #3a4658;flex-shrink:0}
+.ki-step.on .ki-dot{background:#ef4444;border-color:#ef4444;box-shadow:0 0 6px rgba(239,68,68,.6)}
+.ki-step .ki-label{color:#3a4658;max-width:0;overflow:hidden;transition:none}
+.ki-step.on .ki-label{color:#cbd5e1}
+.ki-arrow{width:14px;height:1px;background:#2a3444;margin:0 2px}
+.ki-step.on + .ki-arrow{background:#ef4444}
+@media(max-width:1000px){.ki-row{grid-template-columns:1fr 1fr;gap:8px}.ki-chain{grid-column:1/-1}}
 @media(max-width:1200px){.stat-grid{grid-template-columns:repeat(4,1fr)}.row-2col{grid-template-columns:1fr}.row-3col{grid-template-columns:1fr 1fr}.row-a{grid-template-columns:1fr}}
 @media(max-width:768px){.stat-grid{grid-template-columns:repeat(2,1fr)}.row-3col{grid-template-columns:1fr}.topbar-center{display:none}}
 </style>
@@ -339,6 +371,28 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
     <div class="stat-card sc-blue"><div class="stat-label">ML Detections</div><div class="stat-value v-blue" id="s-ml">0</div><div class="stat-sub" id="s-ml-status">model: checking</div></div>
     <div class="stat-card sc-teal"><div class="stat-label">Unique Attackers</div><div class="stat-value v-teal" id="s-unique-ips">0</div><div class="stat-sub">source IPs</div></div>
     <div class="stat-card sc-green"><div class="stat-label">Alert Rate</div><div class="stat-value v-green sm" id="s-alert-rate">0/min</div><div class="stat-sub" id="s-det-rate">det. rate: 0%</div></div>
+  </div>
+
+  <!-- INTRUSION STATUS / KILL CHAIN -->
+  <div class="panel intrusion-panel">
+    <div class="panel-header">
+      <span class="panel-title">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.5"><path d="M12 2 4 6v6c0 5 3.4 8.5 8 10 4.6-1.5 8-5 8-10V6z"/><path d="m9 12 2 2 4-4"/></svg>
+        Intrusion Status — Kill Chain
+      </span>
+      <div class="ki-summary">
+        <span class="ki-count" id="ki-active" style="color:var(--red)">0</span> active
+        <span style="color:var(--border)">|</span>
+        <span class="ki-count" id="ki-breach" style="color:#f97316">0</span> breached
+        <span style="color:var(--border)">|</span>
+        <span class="ki-count" id="ki-tracked" style="color:var(--text-dim)">0</span> tracked
+      </div>
+    </div>
+    <div class="panel-body">
+      <div class="intrusion-list" id="intrusion-list">
+        <div class="ki-empty"><span class="ki-ok">◇ NO INTRUSIONS DETECTED</span><br>No host has breached defenses. Recon/attempts appear here as they escalate.</div>
+      </div>
+    </div>
   </div>
 
   <!-- Timeline + Live Alerts -->
@@ -660,9 +714,10 @@ function onLoginSuccess() {
   loadModelInfo();
 
   // Start polling
-  Promise.all([pollStatus(), pollAlerts()]);
-  pollIntervals.push(setInterval(pollAlerts,  POLL_MS));
-  pollIntervals.push(setInterval(pollStatus,  POLL_MS * 2));
+  Promise.all([pollStatus(), pollAlerts(), pollIntrusions()]);
+  pollIntervals.push(setInterval(pollAlerts,     POLL_MS));
+  pollIntervals.push(setInterval(pollStatus,     POLL_MS * 2));
+  pollIntervals.push(setInterval(pollIntrusions, POLL_MS));
 }
 
 function applyRoleUI() {
@@ -706,6 +761,72 @@ async function pollAlerts() {
     }
     setApiOnline(true);
   } catch { setApiOnline(false); }
+}
+
+/* ═══════════════════════════════════════════
+   INTRUSION STATUS / KILL CHAIN
+═══════════════════════════════════════════ */
+const KI_STATUS_CLASS = {
+  'ACTIVE INTRUSION':'st-active', 'BREACHED':'st-breach',
+  'UNDER ATTACK':'st-attack', 'PROBING':'st-probe', 'QUIET':'st-probe'
+};
+
+async function pollIntrusions() {
+  try {
+    const data = await apiFetch('/intrusions');
+    renderIntrusions(data.chain || [], data.hosts || []);
+    setApiOnline(true);
+  } catch { /* leave last render in place on transient error */ }
+}
+
+function renderIntrusions(chain, hosts) {
+  const list = el('intrusion-list');
+  const active  = hosts.filter(h=>h.status==='ACTIVE INTRUSION').length;
+  const breached= hosts.filter(h=>h.status==='BREACHED').length;
+  const shown   = hosts.filter(h=>h.status!=='QUIET');
+  setText('ki-active', active);
+  setText('ki-breach', breached);
+  setText('ki-tracked', hosts.length);
+
+  if (!shown.length) {
+    list.innerHTML = '<div class="ki-empty"><span class="ki-ok">◇ NO INTRUSIONS DETECTED</span><br>No host has breached defenses. Recon/attempts appear here as they escalate.</div>';
+    return;
+  }
+
+  const frag = document.createDocumentFragment();
+  for (const h of shown) {
+    const cls = KI_STATUS_CLASS[h.status] || 'st-probe';
+    const reached = new Set((h.stages_reached||[]).map(s=>s.stage));
+    const row = document.createElement('div');
+    row.className = 'ki-row ' + cls;
+
+    // Kill-chain stepper: every stage, reached ones lit.
+    let steps = '';
+    chain.forEach((c, i) => {
+      const on = reached.has(c.stage) ? ' on' : '';
+      steps += `<div class="ki-step${on}" title="${esc(c.label)}"><span class="ki-dot"></span></div>`;
+      if (i < chain.length-1) steps += '<div class="ki-arrow"></div>';
+    });
+
+    const furthest = h.furthest_stage ? esc(h.furthest_stage) : '—';
+    const lastSeen = h.last_activity_sec!=null ? fmtAge(h.last_activity_sec) : '';
+    row.innerHTML = `
+      <div class="ki-host">${esc(h.host)}<span class="ki-sub">${h.stage_count} stage${h.stage_count===1?'':'s'} · last ${lastSeen}</span></div>
+      <div class="ki-badge ${cls}">${esc(h.status)}</div>
+      <div>
+        <div class="ki-chain">${steps}</div>
+        <div class="ki-reached">reached: ${furthest}</div>
+      </div>`;
+    frag.appendChild(row);
+  }
+  list.innerHTML=''; list.appendChild(frag);
+}
+
+function fmtAge(sec) {
+  sec = Math.max(0, Math.round(sec));
+  if (sec < 60) return sec+'s ago';
+  if (sec < 3600) return Math.floor(sec/60)+'m ago';
+  return Math.floor(sec/3600)+'h ago';
 }
 
 /* ═══════════════════════════════════════════
