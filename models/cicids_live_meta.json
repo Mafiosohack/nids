@@ -1,0 +1,240 @@
+{
+  "model_type": "HistGradientBoostingClassifier",
+  "task": "multiclass",
+  "dataset": "CIC-IDS2017 (GeneratedLabelledFlows / labelled set) -> live schema",
+  "numeric_features": [
+    "duration",
+    "src_bytes",
+    "dst_bytes",
+    "land",
+    "count",
+    "srv_count",
+    "serror_rate",
+    "srv_serror_rate",
+    "rerror_rate",
+    "srv_rerror_rate"
+  ],
+  "categorical_features": [
+    "protocol_type",
+    "service",
+    "flag"
+  ],
+  "encoder_categories": [
+    [
+      "icmp",
+      "tcp",
+      "udp"
+    ],
+    [
+      "IRC",
+      "auth",
+      "bgp",
+      "domain",
+      "eco_i",
+      "ftp",
+      "ftp_data",
+      "http",
+      "http_443",
+      "http_8001",
+      "imap4",
+      "ldap",
+      "mssql",
+      "netbios_ssn",
+      "nntp",
+      "ntp_u",
+      "other",
+      "pop_3",
+      "printer",
+      "shell",
+      "smtp",
+      "sql_net",
+      "ssh",
+      "sunrpc",
+      "telnet"
+    ],
+    [
+      "OTH",
+      "REJ",
+      "S0",
+      "S1"
+    ]
+  ],
+  "n_features_out": 42,
+  "classes": [
+    "BENIGN",
+    "Bot",
+    "DDoS",
+    "DoS GoldenEye",
+    "DoS Hulk",
+    "DoS Slowhttptest",
+    "DoS slowloris",
+    "FTP-Patator",
+    "Heartbleed",
+    "Infiltration",
+    "PortScan",
+    "SSH-Patator",
+    "Web Attack - Brute Force",
+    "Web Attack - Sql Injection",
+    "Web Attack - XSS"
+  ],
+  "train_samples": 2123057,
+  "test_samples": 707686,
+  "eval_note": "stratified 25% hold-out, in-distribution; live schema is lossy (13 packet-derivable features) \u2014 see module docstring",
+  "serving_note": "drop-in for a live-schema sensor; current live_ids_v2 is binary and loads models/rf_live.pkl \u2014 wiring is a follow-up",
+  "metrics": {
+    "accuracy": 0.9635,
+    "balanced_accuracy": 0.9106,
+    "macro_f1": 0.6563,
+    "weighted_f1": 0.9779,
+    "binary_recall": 0.9996,
+    "binary_fpr": 0.0437
+  },
+  "per_class": [
+    {
+      "class": "BENIGN",
+      "precision": 0.9999,
+      "recall": 0.9563,
+      "f1": 0.9776,
+      "support": 568274,
+      "low_support": false
+    },
+    {
+      "class": "DoS Hulk",
+      "precision": 0.9787,
+      "recall": 0.9894,
+      "f1": 0.984,
+      "support": 57768,
+      "low_support": false
+    },
+    {
+      "class": "PortScan",
+      "precision": 0.9927,
+      "recall": 0.9982,
+      "f1": 0.9955,
+      "support": 39733,
+      "low_support": false
+    },
+    {
+      "class": "DDoS",
+      "precision": 0.9973,
+      "recall": 0.9986,
+      "f1": 0.998,
+      "support": 32007,
+      "low_support": false
+    },
+    {
+      "class": "DoS GoldenEye",
+      "precision": 0.7887,
+      "recall": 0.9965,
+      "f1": 0.8805,
+      "support": 2573,
+      "low_support": false
+    },
+    {
+      "class": "FTP-Patator",
+      "precision": 0.998,
+      "recall": 0.9995,
+      "f1": 0.9987,
+      "support": 1985,
+      "low_support": false
+    },
+    {
+      "class": "SSH-Patator",
+      "precision": 0.6646,
+      "recall": 1.0,
+      "f1": 0.7985,
+      "support": 1474,
+      "low_support": false
+    },
+    {
+      "class": "DoS slowloris",
+      "precision": 0.9124,
+      "recall": 0.9917,
+      "f1": 0.9504,
+      "support": 1449,
+      "low_support": false
+    },
+    {
+      "class": "DoS Slowhttptest",
+      "precision": 0.8783,
+      "recall": 0.992,
+      "f1": 0.9317,
+      "support": 1375,
+      "low_support": false
+    },
+    {
+      "class": "Bot",
+      "precision": 0.0301,
+      "recall": 1.0,
+      "f1": 0.0584,
+      "support": 491,
+      "low_support": false
+    },
+    {
+      "class": "Web Attack - Brute Force",
+      "precision": 0.066,
+      "recall": 0.5862,
+      "f1": 0.1187,
+      "support": 377,
+      "low_support": false
+    },
+    {
+      "class": "Web Attack - XSS",
+      "precision": 0.0418,
+      "recall": 0.773,
+      "f1": 0.0792,
+      "support": 163,
+      "low_support": false
+    },
+    {
+      "class": "Infiltration",
+      "precision": 0.0261,
+      "recall": 0.7778,
+      "f1": 0.0505,
+      "support": 9,
+      "low_support": true
+    },
+    {
+      "class": "Web Attack - Sql Injection",
+      "precision": 0.0113,
+      "recall": 0.6,
+      "f1": 0.0222,
+      "support": 5,
+      "low_support": true
+    },
+    {
+      "class": "Heartbleed",
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "support": 3,
+      "low_support": true
+    }
+  ],
+  "feature_importance": [
+    {
+      "name": "service",
+      "pct": 100.0
+    },
+    {
+      "name": "src_bytes",
+      "pct": 79.0
+    },
+    {
+      "name": "dst_bytes",
+      "pct": 77.3
+    },
+    {
+      "name": "duration",
+      "pct": 69.3
+    },
+    {
+      "name": "count",
+      "pct": 48.0
+    },
+    {
+      "name": "flag",
+      "pct": 6.3
+    }
+  ]
+}

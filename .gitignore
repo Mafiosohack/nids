@@ -23,6 +23,14 @@ models/*.h5
 models/*.pt
 models/*.json
 
+# ...but SHIP the trained CIC-IDS2017 models (~7 MB) so a fresh clone runs
+# without needing the ~2 GB dataset. Retraining regenerates these in place.
+!models/cicids_flow.pkl
+!models/cicids_flow_meta.json
+!models/cicids_live.pkl
+!models/cicids_live_encoder.pkl
+!models/cicids_live_meta.json
+
 # Dataset / capture files
 data/*.csv
 data/*.json
