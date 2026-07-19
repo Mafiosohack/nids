@@ -16,6 +16,7 @@ live_ids_v2.py handles flow-based ML and forwards alerts to /alert.
 import hashlib
 import hmac
 import json
+import math
 import secrets
 import sqlite3
 import threading
@@ -34,10 +35,11 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
 try:
-    from scapy.all import ICMP, IP, TCP, UDP, sniff
+    from scapy.all import ARP, DNS, ICMP, IP, TCP, UDP, sniff
     SCAPY_AVAILABLE = True
 except ImportError:
     SCAPY_AVAILABLE = False
+    ARP = DNS = ICMP = IP = TCP = UDP = None  # referenced defensively below
     print("[WARN] Scapy not available. Packet capture disabled.")
 
 # ─────────────────────────────────────────────
@@ -114,6 +116,32 @@ STAGING_WINDOW          = 300            # seconds
 # Handshake table housekeeping (pending SYNs waiting for SYN-ACK).
 HANDSHAKE_TTL_SEC       = 30
 HANDSHAKE_MAX_ENTRIES   = 20000
+
+# ─────────────────────────────────────────────
+#  PROTOCOL / TRUST-BOUNDARY ATTACKS
+#  Pentesters abuse a protocol's implicit trust rather than force the door.
+# ─────────────────────────────────────────────
+# Cloud instance metadata endpoints (IMDS). A workload tricked via SSRF into
+# hitting these can read the instance's IAM role credentials — the classic
+# cloud trust-boundary attack. Link-local, so packet capture sees it even
+# though AWS VPC Flow Logs do NOT (that's why this lives in the packet sensor).
+METADATA_IPS            = {"169.254.169.254", "fd00:ec2::254",
+                          "100.100.100.200"}   # AWS/GCP/Azure, Alibaba
+IMDS_BURST_THRESHOLD    = 6      # rapid metadata hits = credential harvesting
+IMDS_WINDOW             = 20     # seconds
+
+# DNS tunneling: DNS is almost always allowed egress, so it becomes a covert
+# channel for data exfil / C2. We flag sustained long / high-entropy queries.
+DNS_WINDOW              = 60     # seconds
+DNS_TUNNEL_THRESHOLD    = 15     # suspicious queries to one parent domain → alert
+DNS_LONG_LABEL          = 45     # a single DNS label longer than this is odd
+DNS_QNAME_LEN           = 60     # total query-name length considered long
+DNS_ENTROPY_MIN         = 3.6    # Shannon bits/char of the subdomain (random-looking)
+DNS_SUSPICIOUS_QTYPES   = {10, 16, 251, 252}   # NULL, TXT, IXFR, AXFR
+
+# ARP spoofing / MITM: layer-2 has no authentication. One IP suddenly claimed
+# by a different MAC = poisoning / man-in-the-middle positioning.
+ARP_COOLDOWN            = 60     # seconds between repeat alerts per IP
 
 # ─────────────────────────────────────────────
 #  AUTH CONFIG
@@ -304,6 +332,11 @@ staging_tracker     = defaultdict(lambda: {"srcs": defaultdict(int), "timestamps
 _recent_pc_alerts: Dict[str, float] = {}
 pc_lock             = threading.Lock()
 
+# ── Protocol / trust-boundary trackers ────────
+metadata_tracker    = defaultdict(list)                    # src → [ts] of IMDS hits
+dns_tracker         = defaultdict(lambda: {"timestamps": []})  # (src,parent) → ts list
+arp_ip_mac: Dict[str, str] = {}                            # ip → last-seen MAC
+
 # ── Kill-chain / intrusion state (per host = suspected attacker or victim) ──
 # host → {"stages": {stage: {"first": ts, "last": ts, "count": n, "detail": str}},
 #         "first_seen": ts, "last_activity": ts}
@@ -374,6 +407,12 @@ ATTACK_MAP = {
     "Root Access":          ("privilege_escalation","Privilege Escalation","T1548"),
     "Persistence":          ("persistence",         "Persistence",         "T1136"),
     "Sensitive File Access":("collection",          "Collection",          "T1005"),
+    # Protocol / trust-boundary attacks.
+    "Cloud Metadata Access":("credential_access",   "Credential Access",   "T1552.005"),
+    "DNS Tunneling":        ("exfiltration",        "Exfiltration",        "T1048"),
+    # (ARP Spoofing is intentionally NOT mapped: at L2 the attacker forges the
+    #  source IP, so per-attacker kill-chain attribution would be unreliable.
+    #  It still fires as a standalone high-severity alert.)
 }
 
 
@@ -934,10 +973,125 @@ def _prune_handshakes(now: float):
 
 
 # ─────────────────────────────────────────────
+#  PROTOCOL / TRUST-BOUNDARY DETECTORS
+# ─────────────────────────────────────────────
+def _shannon(s: str) -> float:
+    """Shannon entropy (bits/char). High = random-looking = encoded payload."""
+    if not s:
+        return 0.0
+    freq = defaultdict(int)
+    for ch in s:
+        freq[ch] += 1
+    n = len(s)
+    return -sum((c / n) * math.log2(c / n) for c in freq.values())
+
+
+def _dns_parent(qname: str) -> str:
+    """Registered-ish parent domain: the last two labels of a query name."""
+    labels = qname.rstrip(".").split(".")
+    return ".".join(labels[-2:]) if len(labels) >= 2 else qname.rstrip(".")
+
+
+def _is_tunnel_qname(qname: str, qtype: int) -> bool:
+    """Heuristic: does this DNS query look like tunneled data rather than a
+    normal hostname lookup?"""
+    q = qname.rstrip(".")
+    if not q:
+        return False
+    if qtype in DNS_SUSPICIOUS_QTYPES:            # TXT/NULL/zone-transfer
+        return True
+    labels = q.split(".")
+    if any(len(lbl) > DNS_LONG_LABEL for lbl in labels):   # one giant label
+        return True
+    # Long overall name whose subdomain looks high-entropy (base32/hex payload).
+    if len(q) > DNS_QNAME_LEN:
+        sub = "".join(labels[:-2]) if len(labels) > 2 else labels[0]
+        if _shannon(sub) >= DNS_ENTROPY_MIN:
+            return True
+    return False
+
+
+def detect_metadata_access(src: str, dst: str):
+    """Burst of connections to a cloud metadata (IMDS) endpoint — the SSRF
+    credential-theft trust-boundary attack. A single hit is normal SDK traffic;
+    a rapid burst is enumeration/harvesting."""
+    if dst not in METADATA_IPS:
+        return
+    now = time.time()
+    t = metadata_tracker[src]
+    t[:] = _prune(t, IMDS_WINDOW, now)
+    t.append(now)
+    if len(t) >= IMDS_BURST_THRESHOLD and _pc_should_fire(f"imds:{src}", 90):
+        generate_alert(
+            "Cloud Metadata Access", "high", src, dst, "TCP",
+            f"Cloud metadata harvesting: {src} hit IMDS {dst} {len(t)} times in "
+            f"{IMDS_WINDOW}s — possible SSRF stealing instance IAM credentials",
+            {"metadata_ip": dst, "hits": len(t), "window_seconds": IMDS_WINDOW,
+             "note": "single accesses are normal SDK traffic; bursts are not"},
+        )
+        metadata_tracker[src] = []
+
+
+def detect_dns_tunneling(src: str, qname: str, qtype: int):
+    """Sustained long / high-entropy DNS queries to one parent domain = data
+    smuggled over DNS (covert exfil / C2)."""
+    if not _is_tunnel_qname(qname, qtype):
+        return
+    parent = _dns_parent(qname)
+    now = time.time()
+    key = (src, parent)
+    t = dns_tracker[key]
+    t["timestamps"] = _prune(t["timestamps"], DNS_WINDOW, now)
+    t["timestamps"].append(now)
+    if len(t["timestamps"]) >= DNS_TUNNEL_THRESHOLD and \
+            _pc_should_fire(f"dnstun:{src}:{parent}", 120):
+        generate_alert(
+            "DNS Tunneling", "high", src, None, "UDP",
+            f"DNS tunneling: {src} sent {len(t['timestamps'])} long/high-entropy "
+            f"queries to *.{parent} in {DNS_WINDOW}s — data exfil over DNS",
+            {"parent_domain": parent, "suspicious_queries": len(t["timestamps"]),
+             "window_seconds": DNS_WINDOW, "sample_qname": qname.rstrip(".")[:80]},
+        )
+        dns_tracker[key] = {"timestamps": []}
+
+
+def detect_arp_spoofing(ip: str, mac: str):
+    """One IP suddenly claimed by a different MAC = ARP poisoning / MITM.
+
+    Attribution is to the impersonated IP (the attacker forges the source), so
+    this fires as a standalone alert and is not folded into a per-attacker chain.
+    """
+    mac = (mac or "").lower()
+    if not ip or not mac:
+        return
+    prev = arp_ip_mac.get(ip)
+    if prev is None:
+        arp_ip_mac[ip] = mac
+        return
+    if prev != mac:
+        if _pc_should_fire(f"arp:{ip}", ARP_COOLDOWN):
+            generate_alert(
+                "ARP Spoofing", "high", ip, None, "ARP",
+                f"ARP spoofing: IP {ip} is now claimed by MAC {mac} "
+                f"(was {prev}) — man-in-the-middle / cache poisoning on the LAN",
+                {"ip": ip, "old_mac": prev, "new_mac": mac,
+                 "note": "rarely a legitimate NIC/DHCP change; verify"},
+            )
+        arp_ip_mac[ip] = mac
+
+
+# ─────────────────────────────────────────────
 #  PACKET PROCESSOR
 # ─────────────────────────────────────────────
 def process_packet(packet):
     system_stats["packets_captured"] += 1
+
+    # ARP has no IP layer — handle it before the IP guard (L2 trust boundary).
+    if ARP is not None and packet.haslayer(ARP):
+        arp = packet[ARP]
+        # op 1=who-has (request), 2=is-at (reply); both announce psrc→hwsrc.
+        detect_arp_spoofing(getattr(arp, "psrc", ""), getattr(arp, "hwsrc", ""))
+        return
 
     if not packet.haslayer(IP):
         return
@@ -948,6 +1102,9 @@ def process_packet(packet):
 
     # DDoS check runs on every IP packet
     detect_ddos(src, dst)
+
+    # Cloud metadata (IMDS) trust-boundary abuse — any dst, TCP or UDP.
+    detect_metadata_access(src, dst)
 
     # Byte-volume post-compromise detectors (protocol-agnostic)
     detect_data_exfiltration_net(src, dst, plen)   # internal → external, mass upload
@@ -992,6 +1149,19 @@ def process_packet(packet):
     elif packet.haslayer(UDP):
         udp = packet[UDP]
         detect_udp_amplification(src, dst, udp.dport, len(packet))
+
+        # DNS tunneling — inspect outbound queries (port 53) for covert exfil.
+        if DNS is not None and packet.haslayer(DNS):
+            dns = packet[DNS]
+            if int(getattr(dns, "qr", 0)) == 0 and int(getattr(dns, "qdcount", 0)) > 0:
+                try:
+                    qd = dns.qd
+                    qname = qd.qname.decode("utf-8", "ignore") if qd else ""
+                    qtype = int(qd.qtype) if qd else 0
+                    if qname:
+                        detect_dns_tunneling(src, qname, qtype)
+                except Exception:
+                    pass
 
     # ICMP: currently just counted via DDoS tracker above
     # Extend here if you want ICMP-specific detection (ping flood, smurf, etc.)
