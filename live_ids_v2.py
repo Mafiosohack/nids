@@ -530,7 +530,14 @@ def send_alert(flow: Flow, label: str, attack_prob: Optional[float],
             headers={"X-Sensor-Key": SENSOR_API_KEY},
         )
         if resp.status_code == 200:
-            print(f"[ALERT] OK Accepted by NIDS (id={resp.json().get('alert_id')})")
+            body = resp.json()
+            if body.get("deduplicated"):
+                # The NIDS collapsed this into an existing record and bumped its
+                # count. Reporting a fresh id here would overstate what happened.
+                print("[ALERT] OK Accepted by NIDS (deduplicated into an "
+                      "existing alert record; its count was incremented)")
+            else:
+                print(f"[ALERT] OK Accepted by NIDS (id={body.get('alert_id')})")
         else:
             print(f"[ALERT] !! NIDS returned HTTP {resp.status_code}: {resp.text}")
     except requests.exceptions.ConnectionError:

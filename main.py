@@ -20,6 +20,7 @@ import math
 import os
 import secrets
 import sqlite3
+import sys
 import threading
 import time
 from collections import defaultdict, deque
@@ -43,6 +44,14 @@ except ImportError:
     ARP = DNS = ICMP = IP = TCP = UDP = None  # referenced defensively below
     print("[WARN] Scapy not available. Packet capture disabled.")
 
+# Detection logic lives in `detection/` — pure, clock-injectable, unit-tested.
+# This file is the wiring layer: capture in, HTTP out.
+from detection.findings import Finding
+from detection.pipeline import DetectionPipeline, PipelineConfig
+from detection.reassembly import ScapyDefragmenter
+from detection.rules import (EXTERNAL_SENSOR_STAGES, KILL_CHAIN_ORDER,
+                             STAGE_LABELS, coverage_report, resolve_rule)
+
 # ─────────────────────────────────────────────
 #  CONFIG  (tune these to your environment)
 # ─────────────────────────────────────────────
@@ -51,29 +60,50 @@ except ImportError:
 # nothing anywhere else. Empty/"auto" lets scapy pick its default interface.
 NETWORK_INTERFACE = os.environ.get("NIDS_IFACE", "ens37").strip()
 
-PORT_SCAN_THRESHOLD     = 5      # distinct ports within window → alert
+PORT_SCAN_THRESHOLD     = 6      # distinct ports within window -> alert
 PORT_SCAN_WINDOW        = 5      # seconds
 
-STEALTH_SCAN_THRESHOLD  = 15     # distinct ports within window → alert
-STEALTH_SCAN_WINDOW     = 60     # seconds
+# (STEALTH_SCAN_* removed. Stealth variants are no longer one bucket: -sF/-sN/-sX
+#  are per-packet flag signatures with their own rule IDs, and long-horizon recon
+#  is SCAN_SLOW_RATE below.)
 
-DDOS_PACKET_THRESHOLD   = 200    # packets within window → alert
+DDOS_PACKET_THRESHOLD   = 200    # packets within window -> alert
 DDOS_WINDOW             = 3      # seconds
 
 SYN_FLOOD_THRESHOLD     = 100    # SYN packets without ACKs
 SYN_FLOOD_WINDOW        = 5      # seconds
 SYN_ACK_RATIO_LIMIT     = 5      # SYN:ACK ratio that indicates flood
 
-BRUTE_FORCE_THRESHOLD   = 8      # attempts within window → alert
-BRUTE_FORCE_WINDOW      = 60     # seconds
-BRUTE_FORCE_PORTS       = {22, 21, 23, 25, 110, 143, 3306, 3389, 5432}
+BRUTE_FORCE_THRESHOLD   = 8      # attempts before classifying the rate
+# (BRUTE_FORCE_WINDOW/PORTS moved to detection/scan_rules.py — a single long
+#  window is used and the STANDARD/LOW rate split comes from the measured rate.)
 
 UDP_AMP_PORTS           = {53, 123, 1900, 11211, 19, 17}
-UDP_AMP_THRESHOLD       = 50     # requests within window → alert
+UDP_AMP_THRESHOLD       = 50     # requests within window -> alert
 UDP_AMP_WINDOW          = 10     # seconds
 
-MAX_ALERTS_STORED       = 500
-CORRELATION_EVENT_LIMIT = 15
+MAX_ALERTS_STORED       = 5000   # records held in memory (post-dedup)
+
+# ── Correlation ───────────────────────────────
+# Events from one source inside this window can form one incident. See
+# docs/CORRELATION_DIAGNOSIS.md for why the previous engine had no window at all.
+CORRELATION_WINDOW_SEC  = float(os.environ.get("NIDS_CORRELATION_WINDOW", "600"))
+
+# ── Alert retention ───────────────────────────
+# Identical alerts (same rule/src/dst/port/severity) inside this window collapse
+# into one record with a count instead of N records.
+ALERT_DEDUP_WINDOW_SEC  = float(os.environ.get("NIDS_ALERT_DEDUP_WINDOW", "300"))
+
+# ── Scan / brute-force thresholds ─────────────
+BRUTE_FORCE_RATE_SPLIT  = 0.2    # attempts/sec dividing STANDARD_RATE from LOW_RATE
+BRUTE_FORCE_LONG_WINDOW = 900    # seconds of history kept, so low-and-slow is visible
+
+# Hosts allowed to run reconnaissance (vuln scanners, monitoring). Their recon
+# alerts are recorded at INFO instead of HIGH — still auditable, not paging.
+# Comma-separated in NIDS_AUTHORIZED_SCANNERS.
+AUTHORIZED_SCANNERS = {ip.strip() for ip in
+                       os.environ.get("NIDS_AUTHORIZED_SCANNERS", "").split(",")
+                       if ip.strip()}
 
 # ─────────────────────────────────────────────
 #  POST-COMPROMISE DETECTION  (the "attacker is inside" layer)
@@ -91,13 +121,13 @@ BREACH_MEMORY_SEC       = 180    # how long a brute-forced target stays "hot"
 # Lateral movement: one internal host reaching many internal hosts on admin ports.
 LATERAL_PORTS           = {22, 23, 135, 139, 445, 1433, 3306, 3389, 5432,
                            5985, 5986, 5900}
-LATERAL_THRESHOLD       = 6      # distinct internal targets → alert
+LATERAL_THRESHOLD       = 6      # distinct internal targets -> alert
 LATERAL_WINDOW          = 120    # seconds
 
 # Data exfiltration (network): sustained outbound bytes from an internal host
 # to an external IP. This is OUR packet-based detector (separate from the
 # cloud VPC-flow-log one in cloud_log_sensor.py).
-EXFIL_BYTES_THRESHOLD   = 50_000_000   # 50 MB internal→external in window
+EXFIL_BYTES_THRESHOLD   = 50_000_000   # 50 MB internal->external in window
 EXFIL_WINDOW            = 300          # seconds
 
 # C2 beaconing: repeated, regularly-timed outbound connections to one external IP.
@@ -137,7 +167,7 @@ IMDS_WINDOW             = 20     # seconds
 # DNS tunneling: DNS is almost always allowed egress, so it becomes a covert
 # channel for data exfil / C2. We flag sustained long / high-entropy queries.
 DNS_WINDOW              = 60     # seconds
-DNS_TUNNEL_THRESHOLD    = 15     # suspicious queries to one parent domain → alert
+DNS_TUNNEL_THRESHOLD    = 15     # suspicious queries to one parent domain -> alert
 DNS_LONG_LABEL          = 45     # a single DNS label longer than this is odd
 DNS_QNAME_LEN           = 60     # total query-name length considered long
 DNS_ENTROPY_MIN         = 3.6    # Shannon bits/char of the subdomain (random-looking)
@@ -159,13 +189,13 @@ ASSETS_PATH             = Path(os.environ.get("NIDS_ASSETS", "assets.json"))
 # Distributed scan: many sources each probing one destination (each staying
 # under the per-source port-scan threshold) — a botnet / coordinated sweep.
 DISTRIBUTED_WINDOW      = 20     # seconds
-DISTRIBUTED_SRC_MIN     = 4      # distinct scanning sources → alert
+DISTRIBUTED_SRC_MIN     = 4      # distinct scanning sources -> alert
 DISTRIBUTED_PORTS_MIN   = 3      # ports a source must hit to count as "scanning"
 
 # Slow / low-and-slow scan: distinct ports probed by one source over a LONG
 # horizon, defeating the short stealth-scan window.
 SLOWSCAN_WINDOW         = 1800   # 30 minutes
-SLOWSCAN_THRESHOLD      = 12     # distinct ports over the long horizon → alert
+SLOWSCAN_THRESHOLD      = 12     # distinct ports over the long horizon -> alert
 
 # Adaptive baseline: per-source connection-rate EWMA. Flags a source whose
 # activity spikes far above ITS OWN learned normal — no fixed threshold.
@@ -292,6 +322,15 @@ def init_db():
             )
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_alerts_created ON alerts(created_at)")
+        # rule_id was added when generic bucket labels were replaced with unique
+        # rule IDs. ALTER rather than recreate so existing databases keep history.
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(alerts)").fetchall()}
+        if "rule_id" not in cols:
+            conn.execute("ALTER TABLE alerts ADD COLUMN rule_id TEXT")
+            print("[DB] Added alerts.rule_id column (existing rows keep NULL).")
+        if "count" not in cols:
+            conn.execute("ALTER TABLE alerts ADD COLUMN count INTEGER DEFAULT 1")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_alerts_rule ON alerts(rule_id)")
 
         # Seed admin only if no users exist yet.
         count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
@@ -396,16 +435,19 @@ def db_insert_alert(alert: Dict):
     with get_db() as conn:
         conn.execute(
             "INSERT OR REPLACE INTO alerts "
-            "(id, type, severity, src, dst, protocol, message, timestamp, details, created_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?)",
-            (alert["id"], alert["type"], alert["severity"], alert.get("src"),
-             alert.get("dst"), alert.get("protocol"), alert.get("message"),
-             alert["timestamp"], json.dumps(alert.get("details", {})), time.time()),
+            "(id, rule_id, type, severity, src, dst, protocol, message, "
+            " timestamp, details, count, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (alert["id"], alert.get("rule_id"), alert["type"], alert["severity"],
+             alert.get("src"), alert.get("dst"), alert.get("protocol"),
+             alert.get("message"), alert["timestamp"],
+             json.dumps(alert.get("details", {})), alert.get("count", 1),
+             time.time()),
         )
 
 
 def db_load_recent_alerts(limit: int) -> List[Dict]:
-    """Load the most recent alerts (oldest→newest) to warm the in-memory cache."""
+    """Load the most recent alerts (oldest->newest) to warm the in-memory cache."""
     with get_db() as conn:
         rows = conn.execute(
             "SELECT * FROM alerts ORDER BY id DESC LIMIT ?", (limit,)
@@ -451,18 +493,36 @@ def db_clear_alerts():
 #  GLOBAL STATE
 # ─────────────────────────────────────────────
 alerts_lock  = threading.Lock()
-alerts: Deque[Dict] = deque(maxlen=MAX_ALERTS_STORED)
 
-# Per-source trackers — all use defaultdict so keys are created on first access
-scan_tracker       = defaultdict(lambda: {"ports": set(), "first_seen": None})
-stealth_tracker    = defaultdict(lambda: {"ports": set(), "timestamps": []})
+# The detection pipeline owns the alert store, the correlation engine and every
+# packet-level detector. main.py routes findings into it and publishes whatever
+# comes out. `on_alert` is set in `_wire_pipeline()` once generate_alert exists.
+PIPELINE = DetectionPipeline(
+    PipelineConfig(
+        correlation_window_sec=CORRELATION_WINDOW_SEC,
+        scan_port_threshold=PORT_SCAN_THRESHOLD,
+        scan_window_sec=PORT_SCAN_WINDOW,
+        bruteforce_min_attempts=BRUTE_FORCE_THRESHOLD,
+        bruteforce_window_sec=BRUTE_FORCE_LONG_WINDOW,
+        bruteforce_rate_split=BRUTE_FORCE_RATE_SPLIT,
+        beacon_min_hits=BEACON_MIN_HITS,
+        beacon_max_cv=BEACON_MAX_CV,
+        alert_capacity=MAX_ALERTS_STORED,
+        dedup_window_sec=ALERT_DEDUP_WINDOW_SEC,
+        authorized_scanners=set(AUTHORIZED_SCANNERS),
+    )
+)
+
+# IP fragment reassembly. Runs before any rule sees a packet, so `nmap -f`
+# normalises to the same signature as an unfragmented scan.
+defragmenter = ScapyDefragmenter()
+
+# Per-source trackers — all use defaultdict so keys are created on first access.
+# (Port-scan and brute-force tracking now live in PIPELINE; these are the
+#  detectors main.py still owns.)
 ddos_tracker       = defaultdict(lambda: {"timestamps": []})
 syn_tracker        = defaultdict(lambda: {"syn": 0, "ack": 0})
-bruteforce_tracker = defaultdict(lambda: {"attempts": 0, "timestamps": []})
 udp_amp_tracker    = defaultdict(lambda: {"timestamps": []})
-
-correlation_tracker = defaultdict(lambda: {"events": []})
-correlation_lock    = threading.Lock()
 
 # ── Post-compromise trackers ──────────────────
 # src → {(dst, port): last_bruteforce_ts}  — targets this src recently brute-forced
@@ -482,12 +542,12 @@ _recent_pc_alerts: Dict[str, float] = {}
 pc_lock             = threading.Lock()
 
 # ── Protocol / trust-boundary trackers ────────
-metadata_tracker    = defaultdict(list)                    # src → [ts] of IMDS hits
-dns_tracker         = defaultdict(lambda: {"timestamps": []})  # (src,parent) → ts list
-arp_ip_mac: Dict[str, str] = {}                            # ip → last-seen MAC
+metadata_tracker    = defaultdict(list)                    # src -> [ts] of IMDS hits
+dns_tracker         = defaultdict(lambda: {"timestamps": []})  # (src,parent) -> ts list
+arp_ip_mac: Dict[str, str] = {}                            # ip -> last-seen MAC
 
 # ── Asset inventory + adaptive-baseline trackers ──
-TRUSTED_ARP: Dict[str, str] = {}      # ip → known-good MAC (from assets.json)
+TRUSTED_ARP: Dict[str, str] = {}      # ip -> known-good MAC (from assets.json)
 KNOWN_HOSTS: set = set()              # authorised host IPs
 _rogue_seen: set = set()             # rogue IPs already alerted (de-dupe)
 # dst → {"srcs": {src: set(ports)}, "start": ts}  — distributed-scan aggregation
@@ -508,8 +568,21 @@ def load_asset_inventory():
     TRUSTED_ARP.clear()
     KNOWN_HOSTS.clear()
     if not ASSETS_PATH.exists():
-        print(f"[ASSETS] No inventory at {ASSETS_PATH} - ARP uses learn-on-first-sight "
-              "(no trust anchor). Create one to enable verified ARP + rogue-host detection.")
+        # This is the common fresh-deployment case, so it is also the moment the
+        # operator most needs to know what is switched OFF. The early return used
+        # to skip the Tier 2 warning below, which meant a sensor could run with
+        # its strongest post-compromise rules silently doing nothing.
+        print(f"[ASSETS] No inventory at {ASSETS_PATH}. Running with reduced detection:")
+        print("[ASSETS]   - ARP uses learn-on-first-sight (no trust anchor), so it "
+              "can see a MAC change but cannot say which host is the impostor.")
+        print("[ASSETS]   - Rogue-host detection is off.")
+        print("[ASSETS]   - Tier 2 exploit detection has no baseline: "
+              "BEHAVIOR_UNEXPECTED_OUTBOUND watches no hosts and "
+              "BEHAVIOR_NEW_LISTENING_PORT has nothing to diff against. A reverse "
+              "shell to an allowed port (443) will only be caught once someone "
+              "types into it (BEHAVIOR_INTERACTIVE_SHELL).")
+        print("[ASSETS] Fix: copy assets.example.json to assets.json, or generate "
+              "one with:  python baseline_assets.py --pcap <capture>")
         return
     try:
         data = json.loads(ASSETS_PATH.read_text(encoding="utf-8"))
@@ -525,8 +598,76 @@ def load_asset_inventory():
         KNOWN_HOSTS.add(ip)
     for ip in (data.get("known_hosts") or []):
         KNOWN_HOSTS.add(ip)
+
+    # ── Tier 2 baselines ──────────────────────────────────────────────────────
+    # These are what "unexpected" is measured against. Without them Tier 2 falls
+    # back to a learning window, which bakes in whatever was happening at the
+    # time — fine for a lab, not something to rely on for a host that might
+    # already be compromised.
+    #
+    # `hosts` is the general form and takes ANY machine, not just servers. That
+    # matters: BEHAVIOR_UNEXPECTED_OUTBOUND is the only rule that catches a
+    # reverse shell on an allowed port (443), and it only watches hosts that
+    # have a baseline. A workstation with no entry here falls back to the port
+    # heuristic, which exempts exactly the ports an attacker would choose.
+    # `servers` is kept as an alias so existing inventories keep working.
+    hosts = dict(data.get("servers") or {})
+    hosts.update(data.get("hosts") or {})
+
+    learning, strict = [], []
+    for host, spec in hosts.items():
+        spec = spec or {}
+        ports = [int(p) for p in (spec.get("listening_ports") or [])]
+        if ports:
+            PIPELINE.listening.seed_baseline(host, ports)
+
+        if spec.get("learn_outbound"):
+            # Explicitly opted in to learn-on-first-sight. Findings will be
+            # tagged baseline_source="learned" so they read with that caveat.
+            PIPELINE.outbound.monitored.add(host)
+            learning.append(host)
+        else:
+            allowed = set()
+            for entry in (spec.get("allowed_outbound") or []):
+                try:
+                    ip, port = entry
+                    allowed.add((ip, int(port)))
+                except (TypeError, ValueError):
+                    print(f"[ASSETS][WARN] Bad allowed_outbound entry for "
+                          f"{host}: {entry!r} (expected [ip_or_null, port])")
+            PIPELINE.outbound.seed_baseline(host, allowed)
+            strict.append(host)
+        KNOWN_HOSTS.add(host)
+
+    scanners = {str(ip) for ip in (data.get("authorized_scanners") or [])}
+    if scanners:
+        PIPELINE.cfg.authorized_scanners |= scanners
+
+    # Standing exemptions for BEHAVIOR_INTERACTIVE_SHELL. Needed only where
+    # host_log_sensor.py is NOT deployed: without either, every legitimate SSH
+    # session to that host raises a medium "cannot confirm this login" alert.
+    shell_pairs = 0
+    for entry in (data.get("authorized_shell_sessions") or []):
+        try:
+            client, server = entry
+            PIPELINE.shell.authorize_pair(str(client), str(server))
+            shell_pairs += 1
+        except (TypeError, ValueError):
+            print(f"[ASSETS][WARN] Bad authorized_shell_sessions entry: "
+                  f"{entry!r} (expected [client_ip, server_ip])")
+
     print(f"[ASSETS] Loaded inventory: {len(TRUSTED_ARP)} trusted ARP entries, "
-          f"{len(KNOWN_HOSTS)} known hosts.")
+          f"{len(KNOWN_HOSTS)} known hosts, {len(strict)} host(s) with a strict "
+          f"outbound baseline, {len(learning)} learning, "
+          f"{len(PIPELINE.listening.baseline)} with a listening-port snapshot, "
+          f"{len(PIPELINE.cfg.authorized_scanners)} authorized scanner(s), "
+          f"{shell_pairs} authorized shell session pair(s).")
+    if not hosts:
+        print("[ASSETS] No 'hosts'/'servers' block - the strongest reverse-shell "
+              "rule (BEHAVIOR_UNEXPECTED_OUTBOUND) watches nothing, and a "
+              "callback on an allowed port like 443 will only be caught by "
+              "BEHAVIOR_INTERACTIVE_SHELL once someone types into it. "
+              "Generate a starter inventory with baseline_assets.py.")
 
 # ── Kill-chain / intrusion state (per host = suspected attacker or victim) ──
 # host → {"stages": {stage: {"first": ts, "last": ts, "count": n, "detail": str}},
@@ -550,80 +691,31 @@ sniffer_stop_event = threading.Event()
 # ─────────────────────────────────────────────
 #  MITRE ATT&CK MAPPING + KILL-CHAIN MODEL
 # ─────────────────────────────────────────────
-# Each detectable alert type → (kill-chain stage, MITRE tactic, MITRE technique id).
-# Stages are ordered; a host that advances through them is an active intrusion.
-KILL_CHAIN_ORDER = [
-    "reconnaissance",
-    "credential_access",
-    "initial_access",
-    "privilege_escalation",   # populated by the Phase-2 host log sensor
-    "persistence",            # populated by the Phase-2 host log sensor
-    "command_and_control",
-    "lateral_movement",
-    "collection",
-    "exfiltration",
-]
-
-STAGE_LABELS = {
-    "reconnaissance":       "Reconnaissance",
-    "credential_access":    "Credential Access",
-    "initial_access":       "Initial Access (BREACH)",
-    "privilege_escalation": "Privilege Escalation (ROOT)",
-    "persistence":          "Persistence",
-    "command_and_control":  "Command & Control",
-    "lateral_movement":     "Lateral Movement",
-    "collection":           "Collection / Staging",
-    "exfiltration":         "Exfiltration",
-}
-
-# alert_type → (stage, tactic name, technique id)
-ATTACK_MAP = {
-    "Port Scan":            ("reconnaissance",      "Discovery",           "T1046"),
-    "Stealth Scan":         ("reconnaissance",      "Discovery",           "T1046"),
-    "Slow Scan":            ("reconnaissance",      "Discovery",           "T1046"),
-    "Distributed Scan":     ("reconnaissance",      "Discovery",           "T1046"),
-    "TCP Signature":        ("reconnaissance",      "Discovery",           "T1046"),
-    "Brute Force Attempt":  ("credential_access",   "Credential Access",   "T1110"),
-    "Breach":               ("initial_access",      "Initial Access",      "T1078"),
-    "Privilege Escalation": ("privilege_escalation","Privilege Escalation","T1548"),
-    "C2 Beaconing":         ("command_and_control", "Command and Control", "T1071"),
-    "Reverse Shell":        ("command_and_control", "Command and Control", "T1059"),
-    "Lateral Movement":     ("lateral_movement",    "Lateral Movement",    "T1021"),
-    "Data Staging":         ("collection",          "Collection",          "T1074"),
-    "Data Exfiltration":    ("exfiltration",        "Exfiltration",        "T1041"),
-    # Cloud log sensor (cloud_log_sensor.py) alert types → same unified kill chain.
-    "Cloud Port Scan":      ("reconnaissance",      "Discovery",           "T1046"),
-    "Cloud Recon":          ("reconnaissance",      "Discovery",           "T1046"),
-    "Cloud Brute Force":    ("credential_access",   "Credential Access",   "T1110"),
-    "Impossible Travel":    ("initial_access",      "Initial Access",      "T1078"),
-    # Host auth-log sensor (host_log_sensor.py) — the HONEST source for
-    # confirmed logins, root access and persistence (not visible on the wire).
-    "Host Brute Force":     ("credential_access",   "Credential Access",   "T1110"),
-    "SSH Login":            ("initial_access",      "Valid Accounts",      "T1078"),
-    "Root Access":          ("privilege_escalation","Privilege Escalation","T1548"),
-    "Persistence":          ("persistence",         "Persistence",         "T1136"),
-    "Sensitive File Access":("collection",          "Collection",          "T1005"),
-    # Protocol / trust-boundary attacks.
-    "Cloud Metadata Access":("credential_access",   "Credential Access",   "T1552.005"),
-    "DNS Tunneling":        ("exfiltration",        "Exfiltration",        "T1048"),
-    # (ARP Spoofing is intentionally NOT mapped: at L2 the attacker forges the
-    #  source IP, so per-attacker kill-chain attribution would be unreliable.
-    #  It still fires as a standalone high-severity alert.)
-}
+# KILL_CHAIN_ORDER and STAGE_LABELS are imported from detection/rules.py, which
+# is the single definition — the correlation engine keys its forward-progression
+# test off the same ordering, so a second copy here would be a latent bug.
+#
+# Per-rule stage/tactic/technique now live on the Rule objects in the catalogue.
+# EXTERNAL_SENSOR_STAGES covers the host/cloud log sensors, whose alert types are
+# not packet rules but still belong on the same chain.
 
 
-def _mitre_for(alert_type: str):
-    """Return (stage, tactic, technique) for an alert type, or (None, None, None)."""
-    return ATTACK_MAP.get(alert_type, (None, None, None))
+def _mitre_for(alert_type: str, rule_id: Optional[str] = None):
+    """Return (stage, tactic, technique) for an alert, or (None, None, None)."""
+    rule = resolve_rule(rule_id, alert_type)
+    if rule is not None and rule.stage:
+        return (rule.stage, rule.tactic, rule.technique)
+    return EXTERNAL_SENSOR_STAGES.get(alert_type, (None, None, None))
 
 
-def update_intrusion_state(alert_type: str, host: Optional[str], detail: str):
-    """Record that `host` reached the kill-chain stage implied by `alert_type`.
+def update_intrusion_state(alert_type: str, host: Optional[str], detail: str,
+                           rule_id: Optional[str] = None):
+    """Record that `host` reached the kill-chain stage implied by this alert.
 
     `host` is the attacker/compromised endpoint we attribute the activity to
     (the alert source). This is what powers the per-host Intrusion Status panel.
     """
-    stage, _, _ = _mitre_for(alert_type)
+    stage, _, _ = _mitre_for(alert_type, rule_id)
     if not stage or not host:
         return
     now = time.time()
@@ -651,13 +743,13 @@ def update_intrusion_state(alert_type: str, host: Optional[str], detail: str):
 
     # Fire the meta-alert OUTSIDE the lock (generate_alert re-enters this fn).
     if announce:
-        chain = " → ".join(STAGE_LABELS[s] for s in stages_snapshot)
+        chain = " -> ".join(STAGE_LABELS[s] for s in stages_snapshot)
         generate_alert(
             "Active Intrusion", "critical", host, None, "Multiple",
             f"ACTIVE INTRUSION: {host} has progressed through the kill chain "
-            f"[{chain}] — attacker is confirmed inside and operating",
+            f"[{chain}] - attacker is confirmed inside and operating",
             {"kill_chain": stages_snapshot, "stage_count": len(stages_snapshot)},
-            _from_correlation=True,
+            rule_id="ACTIVE_INTRUSION",
         )
 
 
@@ -680,11 +772,73 @@ def intrusion_status(rec: dict) -> str:
 # ─────────────────────────────────────────────
 #  ALERT ENGINE
 # ─────────────────────────────────────────────
-def _new_alert_id() -> int:
-    """Thread-safe ID increment — caller must NOT hold alerts_lock."""
+# Every alert takes ONE path: Finding -> PIPELINE.publish -> _on_published_alert.
+# The pipeline handles dedup/retention and correlation; this callback handles the
+# side effects that only make sense in the server (persist, log, kill-chain
+# state). Keeping it to a single path is what removes the old engine's
+# re-entrancy hazard, where correlation called back into alert generation.
+def safe_print(text: str) -> None:
+    """Print that cannot raise on a non-UTF-8 stdout.
+
+    Windows cp1252 and Linux LANG=C under systemd/nohup cannot encode the arrows
+    and box characters that keep finding their way into alert text. Previously
+    that raised UnicodeEncodeError *inside* the capture thread, which killed the
+    alert and, on the API path, returned a 500. Alert text is operator-facing
+    prose from many call sites, so the encoding guarantee belongs here at the
+    one place it is written out — not in a promise that every future f-string
+    stays ASCII.
+    """
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        enc = (getattr(sys.stdout, "encoding", None) or "ascii")
+        print(text.encode(enc, "replace").decode(enc, "replace"))
+    except Exception:
+        pass          # logging must never take down capture
+
+
+def _on_published_alert(alert: Dict) -> None:
+    """Called by the pipeline for each alert that survives deduplication."""
     with alerts_lock:
         system_stats["alerts_generated"] += 1
-        return system_stats["alerts_generated"]
+
+    try:
+        db_insert_alert(alert)
+        if alert["id"] % 1000 == 0:
+            db_prune_alerts()
+    except Exception as e:
+        safe_print(f"[DB][WARN] Could not persist alert {alert['id']}: {e}")
+
+    safe_print(f"[{alert['severity'].upper():8s}] "
+               f"{alert.get('rule_id') or alert['type']} -> {alert['message']}")
+
+    # Advance the per-host kill-chain state (drives the Intrusion Status panel).
+    update_intrusion_state(alert["type"], alert.get("src"), alert["message"],
+                           rule_id=alert.get("rule_id"))
+
+
+_alert_id_lock = threading.Lock()
+_alert_id_counter = [0]
+
+
+def _next_alert_id() -> int:
+    """Monotonic IDs that continue past whatever is already persisted."""
+    with _alert_id_lock:
+        _alert_id_counter[0] += 1
+        return _alert_id_counter[0]
+
+
+def _wire_pipeline() -> None:
+    PIPELINE.on_alert = _on_published_alert
+    PIPELINE.next_alert_id = _next_alert_id
+
+
+_wire_pipeline()
+
+
+def publish_finding(finding: Finding) -> Optional[Dict]:
+    """Route a detector's Finding into the single alert path."""
+    return PIPELINE.publish(finding)
 
 
 def generate_alert(
@@ -695,187 +849,47 @@ def generate_alert(
     protocol: str,
     message: str,
     details: Optional[Dict] = None,
-    _from_correlation: bool = False,
-) -> Dict:
-    alert_id = _new_alert_id()
-    details = dict(details or {})
+    rule_id: Optional[str] = None,
+    _from_correlation: bool = False,   # kept for call-site compatibility; unused
+) -> Optional[Dict]:
+    """Legacy entry point, kept so the host/cloud sensors and POST /alert work.
 
-    # Tag every alert with its kill-chain stage + MITRE ATT&CK tactic/technique.
-    stage, tactic, technique = _mitre_for(alert_type)
-    if stage:
-        details.setdefault("kill_chain_stage", stage)
-        details.setdefault("mitre_tactic", tactic)
-        details.setdefault("mitre_technique", technique)
+    Resolves the alert to a catalogue rule where one exists (by explicit
+    `rule_id`, else by legacy type name) so that even alerts raised the old way
+    carry a rule_id, a kill-chain stage and MITRE mapping.
 
-    alert = {
-        "id":        alert_id,
-        "type":      alert_type,
-        "severity":  severity,
-        "src":       src,
-        "dst":       dst,
-        "protocol":  protocol,
-        "message":   message,
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "details":   details,
-    }
+    Returns None when the alert was deduplicated into an existing record — the
+    event is still counted on that record, it just is not a new alert.
+    """
+    rule = resolve_rule(rule_id, alert_type)
+    stage, tactic, technique = _mitre_for(alert_type, rule_id)
 
-    with alerts_lock:
-        alerts.append(alert)
+    # A confirmed login from the host auth-log sensor is the ONLY thing that can
+    # tell a legitimate SSH session from a shell that merely looks like one — the
+    # two are identical on the wire because they are the same kind of session.
+    # Feeding it back suppresses BEHAVIOR_INTERACTIVE_SHELL for that host pair.
+    if alert_type == "SSH Login" and src and dst:
+        PIPELINE.shell.note_authorized_session(src, dst)
 
-    # Durable store — survives restarts. Best-effort: a DB hiccup must never
-    # drop the live alert or crash the capture thread.
-    try:
-        db_insert_alert(alert)
-        if alert_id % 1000 == 0:
-            db_prune_alerts()
-    except Exception as e:
-        print(f"[DB][WARN] Could not persist alert {alert_id}: {e}")
-
-    # ASCII arrow only: a non-UTF-8 stdout (Windows cp1252, Linux LANG=C under
-    # systemd/nohup) would raise UnicodeEncodeError here and 500 the whole alert.
-    print(f"[{severity.upper():8s}] {alert_type} -> {message}")
-
-    # Advance the per-host kill-chain state (drives the Intrusion Status panel).
-    update_intrusion_state(alert_type, src, message)
-
-    if not _from_correlation and src:
-        with correlation_lock:
-            correlation_tracker[src]["events"].append(alert_type)
-        correlate_events(src)
-
-    return alert
-
-# ─────────────────────────────────────────────
-#  CORRELATION ENGINE
-# ─────────────────────────────────────────────
-# Map of (frozenset of event types) → (alert type, message template)
-CORRELATION_RULES: List[tuple] = [
-    (
-        {"Port Scan", "Brute Force Attempt"},
-        "Attack Chain",
-        "critical",
-        "Port Scan followed by Brute Force",
-    ),
-    (
-        {"Port Scan", "SYN Flood"},
-        "Coordinated Attack",
-        "critical",
-        "Port Scan combined with SYN Flood",
-    ),
-    (
-        {"DDoS", "SYN Flood"},
-        "Volumetric Attack",
-        "critical",
-        "DDoS combined with SYN Flood",
-    ),
-    (
-        {"ML Anomaly", "Port Scan"},
-        "Recon + Anomaly",
-        "critical",
-        "ML anomaly combined with Port Scan",
-    ),
-]
-
-def correlate_events(src: str):
-    with correlation_lock:
-        events = list(correlation_tracker[src]["events"])
-
-    unique = set(events)
-
-    # Check specific rules first
-    for required_events, alert_type, severity, description in CORRELATION_RULES:
-        if required_events.issubset(unique):
-            generate_alert(
-                alert_type, severity, src, None, "Multiple",
-                f"{alert_type} from {src}: {description}",
-                {"events": list(unique)},
-                _from_correlation=True,
-            )
-            with correlation_lock:
-                correlation_tracker[src]["events"].clear()
-            return
-
-    # Generic multi-vector rule
-    if len(unique) >= 3:
-        generate_alert(
-            "Multi-Vector Attack", "critical", src, None, "Multiple",
-            f"Multi-vector attack from {src}: {', '.join(unique)}",
-            {"events": list(unique)},
-            _from_correlation=True,
-        )
-        with correlation_lock:
-            correlation_tracker[src]["events"].clear()
-        return
-
-    # Flush oversized event list to prevent memory growth
-    if len(events) > CORRELATION_EVENT_LIMIT:
-        with correlation_lock:
-            correlation_tracker[src]["events"].clear()
-
-# ─────────────────────────────────────────────
-#  SIGNATURE DETECTION
-# ─────────────────────────────────────────────
-# Maps exact flag values → scan name
-TCP_SIGNATURES = {
-    0x00: "NULL Scan",
-    0x01: "FIN Scan",
-    0x03: "FIN+SYN Scan",
-    0x02: "SYN Scan",
-}
-
-def check_tcp_signature(flags: int) -> Optional[str]:
-    """Return a scan name for known malicious TCP flag combinations."""
-    if flags in TCP_SIGNATURES:
-        return TCP_SIGNATURES[flags]
-    if flags & 0x29 == 0x29:   # FIN + PSH + URG
-        return "XMAS Scan"
-    return None
+    return publish_finding(Finding(
+        rule_id=(rule.rule_id if rule else (rule_id or alert_type)),
+        src=src, dst=dst, protocol=protocol, message=message,
+        details=dict(details or {}),
+        severity_override=severity,
+        title_override=alert_type,
+        stage_override=stage,
+        tactic_override=tactic,
+        technique_override=technique,
+    ))
 
 # ─────────────────────────────────────────────
 #  DETECTION MODULES
 # ─────────────────────────────────────────────
-def detect_port_scan(src: str, dst: str, port: int):
-    t = scan_tracker[src]
-    now = time.time()
-
-    if t["first_seen"] is None:
-        t["first_seen"] = now
-
-    # Reset window if expired
-    if now - t["first_seen"] > PORT_SCAN_WINDOW:
-        t["ports"].clear()
-        t["first_seen"] = now
-        return
-
-    t["ports"].add(port)
-
-    if len(t["ports"]) > PORT_SCAN_THRESHOLD:
-        generate_alert(
-            "Port Scan", "high", src, dst, "TCP",
-            f"Port scan: {src} → {dst}, {len(t['ports'])} ports in {PORT_SCAN_WINDOW}s",
-            {"ports_scanned": len(t["ports"])},
-        )
-        t["ports"].clear()
-        t["first_seen"] = now
-
-
-def detect_stealth_scan(src: str, port: int):
-    """Detects slow/low-and-slow scans that evade the fast port-scan check."""
-    t = stealth_tracker[src]
-    now = time.time()
-
-    t["ports"].add(port)
-    t["timestamps"] = [ts for ts in t["timestamps"] if now - ts < STEALTH_SCAN_WINDOW]
-    t["timestamps"].append(now)
-
-    if len(t["ports"]) >= STEALTH_SCAN_THRESHOLD:
-        generate_alert(
-            "Stealth Scan", "medium", src, None, "TCP",
-            f"Stealth scan: {src} probed {len(t['ports'])} ports over {STEALTH_SCAN_WINDOW}s",
-            {"ports_scanned": len(t["ports"])},
-        )
-        t["ports"].clear()
-        t["timestamps"].clear()
+# Port-scan and stealth-scan detection moved to detection/scan_rules.py
+# (PortScanDetector). The old `detect_stealth_scan` collapsed -sF/-sN/-sX into a
+# single "Stealth Scan" label with no distinguishing detail; each variant now has
+# its own rule ID and carries its decoded flags. Long-horizon low-and-slow recon
+# is still handled by `detect_slow_scan` below (rule SCAN_SLOW_RATE).
 
 
 def detect_ddos(src: str, dst: str):
@@ -886,10 +900,13 @@ def detect_ddos(src: str, dst: str):
     t["timestamps"].append(now)
 
     if len(t["timestamps"]) > DDOS_PACKET_THRESHOLD:
+        count = len(t["timestamps"])
         generate_alert(
-            "DDoS", "critical", src, dst, "Multiple",
-            f"DDoS: {src} → {dst}, {len(t['timestamps'])} pkts in {DDOS_WINDOW}s",
-            {"packet_count": len(t["timestamps"])},
+            "Packet Flood / DDoS", "critical", src, dst, "Multiple",
+            f"DDoS: {src} -> {dst}, {count} pkts in {DDOS_WINDOW}s",
+            {"packet_count": count, "window_seconds": DDOS_WINDOW,
+             "packets_per_sec": round(count / DDOS_WINDOW, 1)},
+            rule_id="FLOOD_PACKET_RATE",
         )
         t["timestamps"].clear()
 
@@ -903,34 +920,19 @@ def detect_syn_flood(src: str, dst: str):
         if ratio > SYN_ACK_RATIO_LIMIT:
             generate_alert(
                 "SYN Flood", "critical", src, dst, "TCP",
-                f"SYN flood: {src} → {dst}, {t['syn']} SYNs, ratio={ratio:.1f}",
-                {"syn_count": t["syn"], "ack_count": t["ack"], "ratio": round(ratio, 2)},
+                f"SYN flood: {src} -> {dst}, {t['syn']} SYNs, ratio={ratio:.1f}",
+                {"syn_count": t["syn"], "ack_count": t["ack"],
+                 "syn_ack_ratio": round(ratio, 2), "window_seconds": SYN_FLOOD_WINDOW},
+                rule_id="FLOOD_SYN",
             )
             t["syn"] = 0
             t["ack"] = 0
 
 
-def detect_brute_force(src: str, dst: str, port: int):
-    if port not in BRUTE_FORCE_PORTS:
-        return
-
-    t = bruteforce_tracker[src]
-    now = time.time()
-
-    t["timestamps"] = [ts for ts in t["timestamps"] if now - ts < BRUTE_FORCE_WINDOW]
-    t["timestamps"].append(now)
-    t["attempts"] = len(t["timestamps"])   # attempts = events in window
-
-    if t["attempts"] >= BRUTE_FORCE_THRESHOLD:
-        generate_alert(
-            "Brute Force Attempt", "high", src, dst, "TCP",
-            f"Brute force: {src} → {dst}:{port}, {t['attempts']} attempts in {BRUTE_FORCE_WINDOW}s",
-            {"port": port, "attempt_count": t["attempts"]},
-        )
-        # Mark this target as "hot": if a session later establishes here, it's a breach.
-        note_bruteforce_target(src, dst, port)
-        t["attempts"] = 0
-        t["timestamps"].clear()
+# Brute-force detection moved to detection/scan_rules.py (BruteForceDetector).
+# It now splits BRUTEFORCE_STANDARD_RATE from BRUTEFORCE_LOW_RATE on the measured
+# attempts/sec and records that figure on the alert, instead of emitting one
+# generic "Brute Force Attempt" for both.
 
 
 def detect_udp_amplification(src: str, dst: str, dst_port: int, pkt_len: int):
@@ -946,7 +948,7 @@ def detect_udp_amplification(src: str, dst: str, dst_port: int, pkt_len: int):
     if len(t["timestamps"]) > UDP_AMP_THRESHOLD:
         generate_alert(
             "UDP Amplification", "high", src, dst, "UDP",
-            f"UDP amp: {src} → {dst}:{dst_port}, {len(t['timestamps'])} reqs in {UDP_AMP_WINDOW}s",
+            f"UDP amp: {src} -> {dst}:{dst_port}, {len(t['timestamps'])} reqs in {UDP_AMP_WINDOW}s",
             {"dst_port": dst_port, "request_count": len(t["timestamps"]), "pkt_size": pkt_len},
         )
         t["timestamps"].clear()
@@ -1034,7 +1036,7 @@ def track_hot_target_traffic(src: str, dst: str, sport: int, dport: int, plen: i
         generate_alert(
             "Breach", "critical", initiator, server, "TCP",
             f"SUSPECTED COMPROMISE: {initiator} opened a sustained session on "
-            f"{server}:{port} ({kb} KB) right after brute-forcing it — "
+            f"{server}:{port} ({kb} KB) right after brute-forcing it - "
             f"attacker appears to be INSIDE",
             {"target_port": port, "session_bytes": rec["bytes"],
              "evidence": "data-heavy session immediately after brute-force storm",
@@ -1067,45 +1069,45 @@ def detect_lateral_movement_net(initiator: str, target: str, tport: int):
 
 def detect_reverse_shell(initiator: str, target: str, tport: int):
     """Internal host initiating an OUTBOUND session to the Internet on a port
-    that is not normal client traffic — a callback to the attacker."""
+    that is not normal client traffic — a callback to the attacker.
+
+    This is the FALLBACK for hosts with no baseline in assets.json. For hosts
+    that do have one, Tier 2's BEHAVIOR_UNEXPECTED_OUTBOUND is strictly better:
+    it compares against that host's own normal behaviour instead of a global
+    port list, so it also catches a callback on tcp/443.
+    """
     if not (is_internal(initiator) and not is_internal(target)):
         return
     if tport in COMMON_OUTBOUND_PORTS:
         return
+    if initiator in PIPELINE.outbound.monitored:
+        return   # a baselined host: the stronger Tier 2 rule owns it
     if _pc_should_fire(f"revshell:{initiator}:{target}:{tport}", cooldown=120):
         generate_alert(
-            "Reverse Shell", "high", initiator, target, "TCP",
+            "Uncommon Egress Port", "high", initiator, target, "TCP",
             f"Reverse-shell indicator: internal host {initiator} called OUT to "
-            f"{target}:{tport} (non-standard port) — possible attacker callback",
-            {"target_port": tport, "direction": "internal→external",
-             "note": "confirm against known-good egress"},
+            f"{target}:{tport} (non-standard port) - possible attacker callback",
+            {"dst_port": tport, "destination": target,
+             "direction": "internal->external",
+             "indicator": "reverse shell (port heuristic, no host baseline)",
+             "note": "add this host to assets.json 'servers' for baseline-based "
+                     "detection, which also catches callbacks on common ports"},
+            rule_id="BEHAVIOR_UNCOMMON_EGRESS_PORT",
         )
 
 
 def detect_c2_beacon(initiator: str, target: str):
-    """Repeated, regularly-timed outbound connections to one external IP."""
+    """Repeated, regularly-timed outbound connections to one external IP.
+
+    Delegates to Tier 2's BeaconDetector (detection/exploit_tier2.py) so the
+    interval-variance analysis has exactly one implementation, unit-tested
+    against both a jittered beacon and bursty human traffic.
+    """
     if not (is_internal(initiator) and not is_internal(target)):
         return
-    now = time.time()
-    hist = beacon_tracker[initiator][target]
-    hist[:] = _prune(hist, BEACON_WINDOW, now)
-    hist.append(now)
-    if len(hist) < BEACON_MIN_HITS:
-        return
-    intervals = [hist[i] - hist[i - 1] for i in range(1, len(hist))]
-    if any(iv < BEACON_MIN_INTERVAL for iv in intervals):
-        return  # too bursty to be a heartbeat
-    cv = _coeff_of_variation(intervals)
-    if cv <= BEACON_MAX_CV and _pc_should_fire(f"beacon:{initiator}:{target}", cooldown=300):
-        avg = sum(intervals) / len(intervals)
-        generate_alert(
-            "C2 Beaconing", "high", initiator, target, "TCP",
-            f"C2 beaconing: {initiator} → {target} every ~{avg:.0f}s "
-            f"({len(hist)} connections, jitter CV={cv:.2f}) — command-and-control pattern",
-            {"beacon_interval_sec": round(avg, 1), "connections": len(hist),
-             "regularity_cv": round(cv, 3)},
-        )
-        beacon_tracker[initiator][target] = []
+    finding = PIPELINE.beacon.observe_connection(initiator, target)
+    if finding is not None:
+        publish_finding(finding)
 
 
 def detect_data_exfiltration_net(src: str, dst: str, plen: int):
@@ -1151,7 +1153,7 @@ def detect_data_staging(src: str, dst: str, plen: int):
         generate_alert(
             "Data Staging", "high", dst, None, "TCP",
             f"Data staging: internal host {dst} aggregated {mb} MB from "
-            f"{len(t['srcs'])} internal hosts in {STAGING_WINDOW}s — pre-exfil collection",
+            f"{len(t['srcs'])} internal hosts in {STAGING_WINDOW}s - pre-exfil collection",
             {"source_hosts": len(t["srcs"]), "megabytes": mb,
              "window_seconds": STAGING_WINDOW},
         )
@@ -1159,7 +1161,7 @@ def detect_data_staging(src: str, dst: str, plen: int):
 
 
 def on_connection_established(initiator: str, target: str, tport: int):
-    """Called when a TCP handshake completes (SYN → SYN-ACK seen).
+    """Called when a TCP handshake completes (SYN -> SYN-ACK seen).
 
     Establishment (not just a SYN probe) is what separates a real session
     from reconnaissance — so the highest-signal post-compromise checks run here.
@@ -1232,7 +1234,7 @@ def detect_metadata_access(src: str, dst: str):
         generate_alert(
             "Cloud Metadata Access", "high", src, dst, "TCP",
             f"Cloud metadata harvesting: {src} hit IMDS {dst} {len(t)} times in "
-            f"{IMDS_WINDOW}s — possible SSRF stealing instance IAM credentials",
+            f"{IMDS_WINDOW}s - possible SSRF stealing instance IAM credentials",
             {"metadata_ip": dst, "hits": len(t), "window_seconds": IMDS_WINDOW,
              "note": "single accesses are normal SDK traffic; bursts are not"},
         )
@@ -1255,7 +1257,7 @@ def detect_dns_tunneling(src: str, qname: str, qtype: int):
         generate_alert(
             "DNS Tunneling", "high", src, None, "UDP",
             f"DNS tunneling: {src} sent {len(t['timestamps'])} long/high-entropy "
-            f"queries to *.{parent} in {DNS_WINDOW}s — data exfil over DNS",
+            f"queries to *.{parent} in {DNS_WINDOW}s - data exfil over DNS",
             {"parent_domain": parent, "suspicious_queries": len(t["timestamps"]),
              "window_seconds": DNS_WINDOW, "sample_qname": qname.rstrip(".")[:80]},
         )
@@ -1279,7 +1281,7 @@ def detect_arp_spoofing(ip: str, mac: str):
         generate_alert(
             "Rogue Host", "medium", ip, None, "ARP",
             f"Rogue device: {ip} ({mac}) announced on the LAN but is not in the "
-            f"asset inventory — unauthorised host",
+            f"asset inventory - unauthorised host",
             {"ip": ip, "mac": mac},
         )
 
@@ -1290,7 +1292,7 @@ def detect_arp_spoofing(ip: str, mac: str):
             generate_alert(
                 "ARP Spoofing", "critical", ip, None, "ARP",
                 f"ARP spoofing CONFIRMED: {ip} should be at {trusted} (asset "
-                f"inventory) but ARP now claims {mac} — {mac} is the impostor / MITM",
+                f"inventory) but ARP now claims {mac} - {mac} is the impostor / MITM",
                 {"ip": ip, "legitimate_mac": trusted, "impostor_mac": mac,
                  "verified": True},
             )
@@ -1305,7 +1307,7 @@ def detect_arp_spoofing(ip: str, mac: str):
         if _pc_should_fire(f"arp:{ip}", ARP_COOLDOWN):
             generate_alert(
                 "ARP Spoofing", "high", ip, None, "ARP",
-                f"ARP anomaly: IP {ip} MAC changed {prev} → {mac} — possible MITM "
+                f"ARP anomaly: IP {ip} MAC changed {prev} -> {mac} - possible MITM "
                 f"(no asset baseline to confirm which is legitimate)",
                 {"ip": ip, "old_mac": prev, "new_mac": mac, "verified": False,
                  "note": "add this host to assets.json for verified attribution"},
@@ -1349,7 +1351,7 @@ def detect_slow_scan(src: str, port: int):
         generate_alert(
             "Slow Scan", "medium", src, None, "TCP",
             f"Low-and-slow scan: {src} probed {len(ports)} distinct ports over "
-            f"up to {SLOWSCAN_WINDOW // 60} min — evading short-window detection",
+            f"up to {SLOWSCAN_WINDOW // 60} min - evading short-window detection",
             {"distinct_ports": len(ports), "horizon_seconds": SLOWSCAN_WINDOW},
         )
         slowscan_tracker[src] = {}
@@ -1377,7 +1379,7 @@ def update_baseline(src: str):
                 "Traffic Anomaly", "medium", src, None, "TCP",
                 f"Adaptive baseline: {src} opened {completed} connections in "
                 f"{BASELINE_BUCKET}s vs a learned norm of ~{ewma:.1f} "
-                f"(> {BASELINE_K:.0f}σ) — unusual burst for this host",
+                f"(> {BASELINE_K:.0f}σ) - unusual burst for this host",
                 {"burst": completed, "baseline_mean": round(ewma, 1),
                  "baseline_std": round(std, 1), "sigma": BASELINE_K},
             )
@@ -1409,6 +1411,21 @@ def process_packet(packet):
     if not packet.haslayer(IP):
         return
 
+    # ── FRAGMENT REASSEMBLY, before any rule sees the packet ──────────────────
+    # nmap -f splits the TCP header across fragments so the flags byte and the
+    # ports land in different packets, and neither one matches a scan signature.
+    # Reassembling first makes a fragmented scan indistinguishable from a normal
+    # one to every rule below. Non-fragments cost one flag test and pass through.
+    fragment_count = 0
+    if defragmenter.is_fragment(packet):
+        result = defragmenter.process(packet)
+        if result is ScapyDefragmenter.PENDING:
+            return                        # partial datagram: nothing to match yet
+        packet = result
+        fragment_count = defragmenter.last_fragment_count
+        if not packet.haslayer(IP):
+            return
+
     src  = packet[IP].src
     dst  = packet[IP].dst
     plen = len(packet)
@@ -1420,8 +1437,8 @@ def process_packet(packet):
     detect_metadata_access(src, dst)
 
     # Byte-volume post-compromise detectors (protocol-agnostic)
-    detect_data_exfiltration_net(src, dst, plen)   # internal → external, mass upload
-    detect_data_staging(src, dst, plen)            # internal → internal aggregation
+    detect_data_exfiltration_net(src, dst, plen)   # internal -> external, mass upload
+    detect_data_staging(src, dst, plen)            # internal -> internal aggregation
 
     if packet.haslayer(TCP):
         tcp   = packet[TCP]
@@ -1430,19 +1447,32 @@ def process_packet(packet):
         sport = tcp.sport
         syn   = bool(flags & 0x02)
         ack   = bool(flags & 0x10)
+        payload = bytes(tcp.payload)[:4096]
 
-        # Signature detection
-        sig = check_tcp_signature(flags)
-        if sig:
-            generate_alert(
-                "TCP Signature", "low", src, dst, "TCP",
-                f"TCP signature '{sig}' from {src} → {dst}:{dport}",
-                {"signature": sig, "flags": flags, "dst_port": dport},
-            )
+        # ── Pipeline rules: flag signatures, scan classification, brute-force
+        #    rate split, Tier 1 payload signatures, Tier 2 behaviour, and
+        #    correlation. Each returns fully-formed alerts, already published.
+        published = PIPELINE.on_tcp_packet(
+            src, dst, sport, dport, flags, payload=payload,
+            # payload is truncated to 4096 for signature matching; the shell-shape
+            # rule needs the TRUE length, so pass it separately.
+            payload_len=len(tcp.payload),
+            fragment_count=fragment_count,
+            is_outbound=(is_internal(src) and not is_internal(dst)),
+        )
+
+        for alert in published:
+            # A brute-force verdict marks the target "hot": a data-heavy session
+            # there afterwards is the breach signal (track_hot_target_traffic).
+            if alert["rule_id"].startswith("BRUTEFORCE_"):
+                note_bruteforce_target(src, dst, dport)
+            # A fragmented probe that still matched: say so explicitly, so the
+            # evasion attempt is visible rather than silently normalised away.
+            if fragment_count and alert.get("kill_chain_stage") == "reconnaissance":
+                alert["details"]["reassembled_from_fragments"] = fragment_count
+                alert["details"]["evasion_attempted"] = "IP fragmentation (nmap -f)"
 
         if syn and not ack:          # pure SYN — connection initiation / probe
-            detect_port_scan(src, dst, dport)
-            detect_stealth_scan(src, dport)
             detect_syn_flood(src, dst)
             detect_distributed_scan(src, dst, dport)   # coordinated / botnet scan
             detect_slow_scan(src, dport)               # low-and-slow recon
@@ -1458,7 +1488,6 @@ def process_packet(packet):
         if ack:
             syn_tracker[src]["ack"] += 1
 
-        detect_brute_force(src, dst, dport)
         # Watch data volume with any brute-forced ("hot") target → breach signal.
         track_hot_target_traffic(src, dst, sport, dport, plen)
 
@@ -1808,11 +1837,17 @@ def status(session: dict = Depends(require_auth)):
         "running":          system_stats["running"],
         "packets_captured": system_stats["packets_captured"],
         "alerts_generated": system_stats["alerts_generated"],
-        "alerts_stored":    len(alerts),
+        "alerts_stored":    len(PIPELINE.alerts),
+        # Records vs represented: deduplication means one record can stand for
+        # hundreds of identical events. Showing only the record count would
+        # under-report the attack.
+        "alerts_represented": PIPELINE.alerts.total_alerts_represented,
+        "incidents":        PIPELINE.correlator.incident_count(),
         "uptime_seconds":   uptime,
         "interface":        NETWORK_INTERFACE or "auto",
         "sniffer_error":    system_stats["sniffer_error"],
         "available_interfaces": list_interfaces(),
+        "fragments_reassembled": defragmenter.core.stats["datagrams_reassembled"],
         "user":             session["username"],
         "role":             session["role"],
     }
@@ -1941,34 +1976,93 @@ def get_alerts(
     limit:      int = Query(50, ge=1, le=MAX_ALERTS_STORED),
     severity:   Optional[str] = Query(None),
     alert_type: Optional[str] = Query(None),
+    rule_id:    Optional[str] = Query(None),
     session: dict = Depends(require_permission("view_alerts")),
 ):
-    with alerts_lock:
-        result = list(alerts)
-
-    if severity:
-        result = [a for a in result if a["severity"].lower() == severity.lower()]
+    """Alert records. Each carries `count`: repeated identical alerts are
+    collapsed into one record rather than stored individually."""
+    result = PIPELINE.alerts.list(severity=severity, rule_id=rule_id)
     if alert_type:
         result = [a for a in result if a["type"].lower() == alert_type.lower()]
-
     return result[-limit:]
+
+
+@app.get("/alerts/retention", tags=["Alerts"])
+def alert_retention(session: dict = Depends(require_permission("view_alerts"))):
+    """Retention policy, current occupancy, and the audit log of what was
+    evicted or collapsed — so nothing disappears without a trace."""
+    return {
+        "policy": {
+            "ttl_by_severity": {
+                k: ("indefinite" if v is None else int(v))
+                for k, v in PIPELINE.alerts.ttl.items()
+            },
+            "capacity":              PIPELINE.alerts.capacity,
+            "dedup_window_seconds":  PIPELINE.alerts.dedup_window_sec,
+            "dedup_key": "rule_id + src + dst + dst_port + severity",
+            "eviction_order": ("lowest severity first, oldest first within a "
+                               "severity; CRITICAL/HIGH are evicted last and "
+                               "only under capacity pressure"),
+        },
+        "stats": PIPELINE.alerts.snapshot_stats(),
+        "log":   list(reversed(PIPELINE.alerts.eviction_log[-200:])),
+    }
+
+
+@app.get("/incidents", tags=["Alerts"])
+def get_incidents(
+    limit: int = Query(50, ge=1, le=500),
+    session: dict = Depends(require_permission("view_alerts")),
+):
+    """Correlated incidents: alerts from one source that advanced forward
+    through the kill chain inside the correlation window.
+
+    Grouping key is source IP and only source IP. See
+    docs/CORRELATION_DIAGNOSIS.md for what this replaced and why.
+    """
+    return {
+        "incidents": PIPELINE.correlator.incidents(limit=limit),
+        "stats":     PIPELINE.correlator.snapshot_stats(),
+        "grouping": {
+            "key":            "source IP",
+            "window_seconds": CORRELATION_WINDOW_SEC,
+            "promotion_rule": ("two or more events from one source whose "
+                               "kill-chain stages advance forward in time; "
+                               "repeated activity at one stage never promotes"),
+            "severity_rule":  ("worst member alert, escalated to critical at "
+                               "three or more kill-chain stages"),
+        },
+    }
+
+
+@app.get("/rules/coverage", tags=["System"])
+def rules_coverage(session: dict = Depends(require_auth)):
+    """What this sensor can and cannot detect, by tier.
+
+    Deliberately separates the five specific exploit signatures (Tier 1) from
+    the behavioural rules that generalise beyond them (Tier 2), and states the
+    network-only scope limit, so the numbers cannot be read as broader coverage
+    than exists.
+    """
+    return coverage_report()
 
 
 @app.delete("/alerts", tags=["Alerts"])
 def clear_alerts(session: dict = Depends(require_permission("delete_alerts"))):
     """Admin only. Clears the in-memory cache AND the durable store."""
     with alerts_lock:
-        count = len(alerts)
-        alerts.clear()
+        count = len(PIPELINE.alerts)
         system_stats["alerts_generated"] = 0
+    PIPELINE.reset()
     db_clear_alerts()
-    with correlation_lock:
-        correlation_tracker.clear()
     with intrusion_lock:
         intrusion_tracker.clear()
     with pc_lock:
         _recent_pc_alerts.clear()
-    print(f"[NIDS] {session['username']} cleared {count} alerts (memory + disk).")
+    with _alert_id_lock:
+        _alert_id_counter[0] = 0
+    print(f"[NIDS] {session['username']} cleared {count} alert records "
+          f"(memory + disk) and reset correlation state.")
     return {"status": "ok", "cleared": count}
 
 
@@ -2003,8 +2097,15 @@ def receive_external_alert(
         protocol=payload.proto,
         message=payload.message,
         details=payload.details,
+        rule_id=(payload.details or {}).get("rule_id"),
     )
-    return {"status": "ok", "alert_id": alert["id"]}
+    if alert is None:
+        # Deduplicated into an existing record. The sensor's event is counted,
+        # it just did not create a new alert — report that honestly rather than
+        # implying a fresh detection.
+        return {"status": "ok", "alert_id": None, "deduplicated": True}
+    return {"status": "ok", "alert_id": alert["id"], "deduplicated": False,
+            "rule_id": alert.get("rule_id")}
 
 
 # ── Control Endpoints (admin only) ────────────
@@ -2074,10 +2175,17 @@ def on_startup():
     # alert-id counter (avoids id collisions with persisted rows).
     try:
         recent = db_load_recent_alerts(MAX_ALERTS_STORED)
+        max_id = db_max_alert_id()
         with alerts_lock:
-            alerts.clear()
-            alerts.extend(recent)
-            system_stats["alerts_generated"] = db_max_alert_id()
+            system_stats["alerts_generated"] = max_id
+        with _alert_id_lock:
+            _alert_id_counter[0] = max_id
+        # Restored rows are loaded straight into the store, bypassing publish():
+        # they were already persisted, printed and correlated when they first
+        # fired. Re-publishing them would double-count and re-open closed
+        # incidents against a clock that has since moved on.
+        for row in recent:
+            PIPELINE.alerts.add(row)
         total = db_alert_count()
         if total:
             print(f"[NIDS] Restored {len(recent)} recent alerts into cache "

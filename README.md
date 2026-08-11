@@ -157,6 +157,152 @@ $env:NIDS_SENSOR_KEY = "<same value main.py uses>"
 
 ---
 
+## 🎯 Rule engine, correlation and coverage
+
+Detection logic lives in `detection/` — pure, clock-injectable, unit-tested, with
+no scapy or FastAPI imports. `main.py` is the wiring layer (capture in, HTTP out)
+and `detection/pipeline.py` is where the detectors are composed. The tests and
+the efficacy harness drive that same pipeline, so what they exercise is what
+runs live.
+
+**Detection is network-only.** The sensor sees packets on the monitored segment
+and infers everything from them: no host, process, or EDR visibility. It cannot
+see in-memory execution, an exploit inside TLS it cannot decrypt, local privilege
+escalation, or whether a login actually succeeded. Host evidence comes from
+`host_log_sensor.py`, a separate source. Full statement of limits:
+[`docs/DETECTION_COVERAGE.md`](docs/DETECTION_COVERAGE.md).
+
+### Running the checks
+
+```powershell
+venv\Scripts\python.exe -m unittest discover -s tests -t tests    # 112 unit tests
+venv\Scripts\python.exe efficacy_harness.py                       # TP/FP/FN report
+venv\Scripts\python.exe efficacy_harness.py -v --json             # detail / machine-readable
+```
+
+The harness carries one case per efficacy-testing finding — including the benign
+scenarios — and exits non-zero on regression. Beyond firing, it also fails any
+alert that lacks the discriminating features its rule declares, so a rule cannot
+quietly decay back into a generic bucket label.
+
+### Rule IDs
+
+Every alert names a stable `rule_id` from the catalogue in `detection/rules.py`,
+and carries the feature that triggered it:
+
+- scans: `TCP_SYN_SCAN`, `TCP_CONNECT_SCAN`, `TCP_FIN_SCAN`, `TCP_NULL_SCAN`,
+  `TCP_XMAS_SCAN` — with decoded flags, port counts and handshake evidence,
+  instead of one generic "stealth scan"
+- brute force: `BRUTEFORCE_STANDARD_RATE` / `BRUTEFORCE_LOW_RATE`, split on the
+  **measured** attempts/sec (threshold 0.2/s), with the figure on the alert
+- `nmap -f` scans are reassembled before rule matching, so they normalise to the
+  same signature as unfragmented ones
+
+### Exploit detection is two tiers, and they are not equivalent
+
+- **Tier 1** — payload signatures for five specific exploits (vsftpd 2.3.4,
+  Samba usermap_script, distccd, UnrealIRCd, Java RMI). Narrow by construction:
+  change the trigger string and the match is gone.
+- **Tier 2** — behavioural, ranked **above** Tier 1: interactive shell sessions,
+  unexpected outbound connections (reverse shell), new listening ports vs a
+  known-good baseline (bind shell), and interval-variance beaconing (C2). These
+  fire on exploitation techniques beyond the five, including ones with no
+  signature.
+
+The distinction is visible in `GET /rules/coverage`, in the dashboard's **Rule
+Coverage** panel, and in the harness output — never merged into a single number.
+
+### "Has someone already got a shell on our machine?"
+
+Three layers answer this, and they are complementary:
+
+| Situation | What catches it |
+|---|---|
+| Box dials out to a destination unusual **for that host** | `BEHAVIOR_UNEXPECTED_OUTBOUND` — fires on the callback SYN, before a command is typed |
+| Box dials out on an unusual **port** | `BEHAVIOR_UNCOMMON_EGRESS_PORT` — fallback for hosts with no baseline |
+| Shell on an **allowed** port (tcp/443) from an unbaselined host | `BEHAVIOR_INTERACTIVE_SHELL` — ignores the destination and matches the *shape* of someone typing |
+| Attacker connects **in** to a bind shell | `BEHAVIOR_NEW_LISTENING_PORT`, then `BEHAVIOR_INTERACTIVE_SHELL` |
+| Confirmed root / persistence on the box | `host_log_sensor.py` — the only source that *knows* rather than infers |
+
+`BEHAVIOR_INTERACTIVE_SHELL` measures keystroke-sized packets one way, larger
+output bursts the other, turn-taking, long-lived and low-volume. It never
+inspects payload, so encryption does not defeat it — heavy packet padding can.
+
+**A legitimate SSH session has the same shape, because it is the same thing.**
+The rule stays quiet only when something vouches for the session: either
+`host_log_sensor.py` reports a matching `SSH Login` (fed back automatically), or
+the pair is in `authorized_shell_sessions` in `assets.json`. With neither, real
+SSH raises a **medium** alert saying it could not confirm a login. If that is
+noisy, deploy the host sensor or allowlist the pair — disabling the rule would
+reopen the tcp/443 hole.
+
+### Baselines (`assets.json`)
+
+Tier 2's strongest rules diff against a known-good baseline. Add a `hosts` block
+(see `assets.example.json`) — **not just servers**: a workstation with no entry
+falls back to the port heuristic, which exempts exactly the ports an attacker
+would choose.
+
+Generate a starter inventory instead of hand-writing it:
+
+```powershell
+venv\Scripts\python.exe baseline_assets.py --pcap data\samples\quiet_hour.pcap
+venv\Scripts\python.exe baseline_assets.py --iface eth0 --seconds 600 -o assets.json
+venv\Scripts\python.exe baseline_assets.py --pcap quiet.pcap --collapse-after 0   # stricter
+```
+
+Two things to know before trusting the output:
+
+- **A baseline taken from a compromised host bakes the compromise in.** Capture
+  from a host you have reason to trust, during a quiet period, and read the file
+  before deploying it.
+- By default a port seen reaching 5+ destinations is widened to "any
+  destination", which keeps browser traffic manageable but means a reverse shell
+  on that port no longer trips the outbound rule. `--collapse-after 0` keeps
+  every destination explicit — stricter, noisier. The generated file flags which
+  ports were widened and what it cost.
+
+### Correlation
+
+Alerts group into incidents by **source IP only**, inside a configurable window
+(`NIDS_CORRELATION_WINDOW`, default 600 s). An incident opens only when a
+source's alerts show **forward progression through the kill chain** — so repeated
+reconnaissance never manufactures one, and a scan → exploit → beacon sequence
+becomes a single incident record rather than three unrelated alerts.
+
+See `GET /incidents`, the dashboard's **Correlated Incidents** panel, and
+[`docs/CORRELATION_DIAGNOSIS.md`](docs/CORRELATION_DIAGNOSIS.md) for what the
+previous engine did and why its output looked arbitrary.
+
+### Alert retention
+
+CRITICAL/HIGH are kept indefinitely; MEDIUM 24 h, LOW 6 h, INFO 1 h. Identical
+repeated alerts collapse into one record with a `count` (200 identical scan pings
+= one record, `count: 200`). Every eviction and collapse is logged and readable
+at `GET /alerts/retention`, so nothing disappears silently.
+
+### New endpoints
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /incidents` | correlated incidents + the grouping rules in force |
+| `GET /rules/coverage` | per-tier rule coverage and the scope limit |
+| `GET /alerts/retention` | retention policy, occupancy, eviction/collapse audit log |
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `NIDS_CORRELATION_WINDOW` | `600` | correlation window, seconds |
+| `NIDS_ALERT_DEDUP_WINDOW` | `300` | dedup window, seconds |
+| `NIDS_AUTHORIZED_SCANNERS` | *(empty)* | comma-separated IPs whose recon is recorded at INFO |
+
+| `assets.json` key | Purpose |
+|---|---|
+| `hosts` | per-host `listening_ports`, `allowed_outbound`, or `learn_outbound: true` |
+| `authorized_scanners` | IPs whose reconnaissance is recorded at INFO |
+| `authorized_shell_sessions` | `[client, server]` pairs exempt from the interactive-shell rule |
+
+---
+
 ## 🤖 Retraining the models
 
 Two models are trained on **CIC-IDS2017**:

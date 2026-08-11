@@ -1,5 +1,5 @@
 {
-  "_comment": "Copy this file to assets.json and edit for your network. It gives ARP detection a trust anchor (so it names the impostor, not just 'a MAC changed') and enables rogue-device detection. main.py loads assets.json on startup; without it, ARP detection falls back to learn-on-first-sight.",
+  "_comment": "Copy this file to assets.json and edit for your network. It gives ARP detection a trust anchor (so it names the impostor, not just 'a MAC changed'), enables rogue-device detection, and supplies the known-good baselines that Tier 2 exploit detection diffs against. main.py loads assets.json on startup; without it, ARP detection falls back to learn-on-first-sight and Tier 2 falls back to a learning window.",
 
   "gateway": {
     "ip": "192.168.1.1",
@@ -16,5 +16,48 @@
     "192.168.1.10",
     "192.168.1.20",
     "192.168.1.50"
+  ],
+
+  "_hosts_comment": "EVERY machine you want the strong reverse-shell rule to watch — not just servers. BEHAVIOR_UNEXPECTED_OUTBOUND is the only rule that catches a callback on an ALLOWED port (tcp/443), and it only watches hosts listed here. A host with no entry falls back to a port heuristic that exempts 80/443/22/8443 — precisely the ports an attacker picks to blend in. ('servers' is still accepted as an alias for this block.) Generate a starter list with: python baseline_assets.py --pcap capture.pcap",
+  "hosts": {
+    "192.168.56.102": {
+      "description": "Metasploitable 2 — lab target (server: zero normal egress)",
+      "_listening_ports_comment": "Known-good port snapshot. A port answering SYN-ACK that is absent from this list fires BEHAVIOR_NEW_LISTENING_PORT (bind-shell indicator). Take it from a host you trust — `ss -ltnp` on the box — BEFORE any testing, not after.",
+      "listening_ports": [21, 22, 23, 25, 53, 80, 111, 139, 445, 512, 513,
+                          514, 1099, 1524, 2049, 2121, 3306, 3632, 5432,
+                          5900, 6000, 6667, 8009, 8180],
+      "_allowed_outbound_comment": "Destinations this host may legitimately reach, as [ip, port]. Keep it as short as you can defend — an empty list is the strongest baseline. Use null for the IP to allow a port to any destination (e.g. DNS).",
+      "allowed_outbound": [
+        [null, 53],
+        [null, 123]
+      ]
+    },
+
+    "192.168.56.20": {
+      "description": "Analyst workstation — legitimately talks to the Internet",
+      "_comment": "A workstation needs a WIDER allowlist than a server, but listing it is still far stronger than leaving it out: without an entry, a reverse shell to tcp/443 from this host is invisible to every port-based rule.",
+      "allowed_outbound": [
+        [null, 53],
+        [null, 80],
+        [null, 443],
+        ["192.168.56.102", 22]
+      ]
+    },
+
+    "192.168.56.30": {
+      "description": "Host with no hand-written baseline yet",
+      "_learn_outbound_comment": "Opt in to learn-on-first-sight: watch this host's egress for outbound_learn_sec (default 300s), then treat anything new as anomalous. Findings are tagged baseline_source='learned'. Convenient, but it bakes in whatever was happening during the learning window — do NOT rely on it for a host that might already be compromised.",
+      "learn_outbound": true
+    }
+  },
+
+  "_scanners_comment": "Hosts permitted to run reconnaissance (vulnerability scanners, monitoring). Their recon alerts are recorded at INFO severity with the original severity preserved on the alert — auditable, but not paging. An unlisted host running the same scan still alerts at full severity.",
+  "authorized_scanners": [
+    "192.168.1.50"
+  ],
+
+  "_shell_sessions_comment": "Standing [client, server] exemptions for BEHAVIOR_INTERACTIVE_SHELL. A legitimate SSH session IS an interactive shell — identical on the wire — so the rule stays quiet only when something vouches for it. Preferred: deploy host_log_sensor.py on the server, and its SSH Login alerts vouch automatically. Use this list only for servers where the host sensor is NOT deployed; otherwise every real SSH session there raises a medium 'could not confirm this login' alert. Keep it narrow: a shell between an allowlisted pair is invisible to this rule.",
+  "authorized_shell_sessions": [
+    ["192.168.56.10", "192.168.56.102"]
   ]
 }

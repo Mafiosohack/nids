@@ -134,6 +134,33 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 .alert-count-badge{flex-shrink:0;font-family:var(--font-mono);font-size:10px;font-weight:600;background:var(--card3);border:1px solid var(--border2);color:var(--text);padding:2px 7px;border-radius:10px;align-self:flex-start;margin-top:2px}
 .no-alerts-msg{padding:32px;text-align:center;font-family:var(--font-mono);font-size:11px;color:var(--text-dim)}
 
+/* ── Correlated incidents + rule coverage ──────────────────────────────────
+   Reference surfaces, not alert surfaces. Deliberately low-arousal: no red
+   except where it states a real limit, so the alert list keeps its urgency. */
+.inc-row{border:1px solid var(--border);border-left:3px solid var(--amber);border-radius:6px;padding:10px 12px;margin-bottom:8px;background:var(--card2)}
+.inc-row.sev-critical{border-left-color:var(--red)}
+.inc-row.sev-high{border-left-color:var(--amber)}
+.inc-head{display:flex;flex-wrap:wrap;gap:10px;align-items:baseline;font-family:var(--font-mono);font-size:11px}
+.inc-id{font-weight:700;color:var(--text)}
+.inc-src{color:var(--text)}
+.inc-dim{color:var(--text-dim)}
+.inc-chain{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:7px}
+.inc-stage{font-family:var(--font-mono);font-size:10px;padding:2px 7px;border-radius:10px;background:var(--card3);border:1px solid var(--border2);color:var(--text)}
+.inc-arrow{color:var(--text-dim);font-size:10px}
+.inc-rules{margin-top:6px;font-family:var(--font-mono);font-size:10px;color:var(--text-dim);word-break:break-word}
+
+.cov-scope{font-size:11px;line-height:1.55;color:var(--text-dim);border:1px solid var(--border2);border-left:3px solid var(--slate);border-radius:6px;padding:9px 12px;margin-bottom:12px;background:var(--card2)}
+.cov-tier{margin-bottom:14px}
+.cov-tier-head{display:flex;flex-wrap:wrap;gap:8px;align-items:baseline;margin-bottom:5px}
+.cov-tier-name{font-family:var(--font-mono);font-size:11px;font-weight:700;color:var(--text)}
+.cov-badge{font-family:var(--font-mono);font-size:9px;letter-spacing:.04em;padding:2px 7px;border-radius:9px;text-transform:uppercase}
+.cov-badge.broad{background:var(--green-dim);color:var(--green);border:1px solid var(--green)}
+.cov-badge.narrow{background:var(--amber-dim);color:var(--amber);border:1px solid var(--amber)}
+.cov-note{font-size:11px;line-height:1.5;color:var(--text-dim);margin-bottom:6px}
+.cov-rules{display:flex;flex-wrap:wrap;gap:5px}
+.cov-rule{font-family:var(--font-mono);font-size:10px;padding:2px 7px;border-radius:4px;background:var(--card3);border:1px solid var(--border);color:var(--text)}
+.cov-rule.gen{border-color:var(--green);color:var(--green)}
+
 /* ── IP / PORT LISTS ── */
 .ip-list,.port-list{display:flex;flex-direction:column;gap:4px}
 .ip-row{display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--card2);border-radius:4px;border:1px solid transparent;transition:border-color .15s}
@@ -392,6 +419,32 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
       <div class="intrusion-list" id="intrusion-list">
         <div class="ki-empty"><span class="ki-ok">◇ NO INTRUSIONS DETECTED</span><br>No host has breached defenses. Recon/attempts appear here as they escalate.</div>
       </div>
+    </div>
+  </div>
+
+  <!-- CORRELATED INCIDENTS -->
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">Correlated Incidents</span>
+      <span class="panel-meta" id="inc-meta">grouped by source IP</span>
+    </div>
+    <div class="panel-body">
+      <div id="incident-list">
+        <div class="no-alerts-msg">No correlated incidents.</div>
+      </div>
+      <div class="cov-note" id="inc-rule" style="margin-top:10px"></div>
+    </div>
+  </div>
+
+  <!-- RULE COVERAGE -->
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">Rule Coverage</span>
+      <span class="panel-meta" id="cov-total">—</span>
+    </div>
+    <div class="panel-body">
+      <div class="cov-scope" id="cov-scope"></div>
+      <div id="cov-tiers"></div>
     </div>
   </div>
 
@@ -729,12 +782,15 @@ function onLoginSuccess() {
 
   // Load real model metrics once (static per training run)
   loadModelInfo();
+  // Rule coverage is static for the running build — fetch once, not on a timer.
+  loadRuleCoverage();
 
   // Start polling
-  Promise.all([pollStatus(), pollAlerts(), pollIntrusions()]);
+  Promise.all([pollStatus(), pollAlerts(), pollIntrusions(), pollIncidents()]);
   pollIntervals.push(setInterval(pollAlerts,     POLL_MS));
   pollIntervals.push(setInterval(pollStatus,     POLL_MS * 2));
   pollIntervals.push(setInterval(pollIntrusions, POLL_MS));
+  pollIntervals.push(setInterval(pollIncidents,  POLL_MS * 2));
 }
 
 function applyRoleUI() {
@@ -1023,6 +1079,102 @@ function updateTimeline() {
   tlChart.data.datasets[1].data=b.suspicious;
   tlChart.data.datasets[2].data=b.malicious;
   tlChart.update('none');
+}
+
+/* ═══════════════════════════════════════════
+   CORRELATED INCIDENTS
+   One row per incident, not per alert. The chain of kill-chain stages is the
+   point: it is what distinguishes an attacker advancing from a noisy scanner.
+═══════════════════════════════════════════ */
+async function pollIncidents() {
+  try {
+    const data = await apiFetch('/incidents');
+    renderIncidents(data);
+  } catch (e) { /* transient: the next poll retries */ }
+}
+
+function renderIncidents(data) {
+  const incidents = (data && data.incidents) || [];
+  const g = (data && data.grouping) || {};
+  el('inc-meta').textContent =
+    `grouped by ${g.key || 'source IP'} · ${g.window_seconds || '—'}s window · ${incidents.length} total`;
+  el('inc-rule').textContent = g.promotion_rule
+    ? `Promotion rule: ${g.promotion_rule}. Severity: ${g.severity_rule || ''}`
+    : '';
+
+  if (!incidents.length) {
+    el('incident-list').innerHTML =
+      '<div class="no-alerts-msg">No correlated incidents. Alerts group into an ' +
+      'incident only when one source advances forward through the kill chain.</div>';
+    return;
+  }
+
+  el('incident-list').innerHTML = incidents.map(inc => {
+    const chain = (inc.stages || []).map(s =>
+      `<span class="inc-stage">${esc(s.label)}${s.count > 1 ? ' ×' + s.count : ''}</span>`
+    ).join('<span class="inc-arrow">→</span>');
+    const rules = Object.keys(inc.rule_ids || {}).map(r =>
+      `${esc(r)}${inc.rule_ids[r] > 1 ? '×' + inc.rule_ids[r] : ''}`).join('  ');
+    const dests = Object.keys(inc.destinations || {});
+    return `
+      <div class="inc-row sev-${esc(inc.severity)}">
+        <div class="inc-head">
+          <span class="inc-id">${esc(inc.incident_id)}</span>
+          <span class="inc-src">${esc(inc.source)}</span>
+          <span class="inc-dim">${esc(inc.severity).toUpperCase()}</span>
+          <span class="inc-dim">${inc.event_count} alerts</span>
+          <span class="inc-dim">${Math.round(inc.duration_sec)}s span</span>
+          <span class="inc-dim">${inc.open ? 'OPEN' : 'closed'}</span>
+          ${dests.length ? `<span class="inc-dim">→ ${esc(dests.slice(0,3).join(', '))}${dests.length>3?' +'+(dests.length-3):''}</span>` : ''}
+        </div>
+        <div class="inc-chain">${chain}</div>
+        <div class="inc-rules">${rules}</div>
+      </div>`;
+  }).join('');
+}
+
+/* ═══════════════════════════════════════════
+   RULE COVERAGE
+   Loaded once. The tier split is the honest part: five specific exploit
+   signatures are not the same kind of thing as three behavioural rules that
+   generalise, and presenting one number would overstate what this sensor sees.
+═══════════════════════════════════════════ */
+async function loadRuleCoverage() {
+  try {
+    const data = await apiFetch('/rules/coverage');
+    renderCoverage(data);
+  } catch (e) {
+    el('cov-scope').textContent = 'Rule coverage unavailable.';
+  }
+}
+
+function renderCoverage(data) {
+  el('cov-total').textContent = `${data.total_rules} rules`;
+  el('cov-scope').innerHTML =
+    `<strong>Scope limit.</strong> ${esc(data.scope_limit)}`;
+
+  el('cov-tiers').innerHTML = (data.tiers || []).map(t => {
+    // The badge is the coverage claim, so it only goes on the tiers that make
+    // one (Tier 1 / Tier 2 — the ones carrying a coverage_note). Badging the
+    // ML or correlation tiers would read as a claim nobody is making.
+    const badge = !t.coverage_note ? ''
+      : (t.generalizing_rules > 0 && t.specific_rules === 0
+          ? '<span class="cov-badge broad">generalises beyond these</span>'
+          : '<span class="cov-badge narrow">these exploits only</span>');
+    const rules = (t.rules || []).map(r =>
+      `<span class="cov-rule ${r.generalizes ? 'gen' : ''}" title="${esc(r.description)}">${esc(r.rule_id)}</span>`
+    ).join('');
+    return `
+      <div class="cov-tier">
+        <div class="cov-tier-head">
+          <span class="cov-tier-name">${esc(t.label)}</span>
+          <span class="inc-dim">${t.rule_count} rules · ${t.generalizing_rules} generalising / ${t.specific_rules} specific</span>
+          ${badge}
+        </div>
+        ${t.coverage_note ? `<div class="cov-note">${esc(t.coverage_note)}</div>` : ''}
+        <div class="cov-rules">${rules}</div>
+      </div>`;
+  }).join('');
 }
 
 /* ═══════════════════════════════════════════
