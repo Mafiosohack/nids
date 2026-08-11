@@ -71,6 +71,7 @@ you skipped `pip install -r requirements.txt`.
 ### 1. Dashboard + API (main.py)
 
 ```powershell
+$env:NIDS_IFACE = "auto"          # or a real interface name — see below
 venv\Scripts\python.exe main.py
 ```
 
@@ -80,6 +81,41 @@ Then open **http://127.0.0.1:8000**. A default admin is seeded on first run:
 
 Change it immediately, or set `NIDS_ADMIN_PASSWORD` before the first run so the
 default is never used. (The user DB is `nids_users.db`, created automatically.)
+
+#### Capture interface (`NIDS_IFACE`)
+
+The built-in sniffer defaults to `ens37`, which **only exists on the Ubuntu
+sensor VM**. On any other host, set `NIDS_IFACE` or capture silently yields
+nothing:
+
+| Value | Meaning |
+|---|---|
+| `auto` | let scapy pick the default interface (easiest) |
+| `ens37` | the lab sensor VM's monitoring NIC |
+| `\Device\NPF_{...}` | a specific Windows adapter |
+
+List what this host actually has:
+
+```powershell
+venv\Scripts\python.exe -c "from scapy.arch import get_if_list; print(get_if_list())"
+```
+
+`POST /control/start` now **rejects** an interface that doesn't exist (listing
+the valid ones) instead of reporting `started` and capturing zero packets, and
+`GET /status` returns `sniffer_error` whenever the capture thread has died.
+
+#### Reaching the dashboard from another machine
+
+The dashboard talks to whichever origin served it, so browsing to
+`http://<sensor-ip>:8000` from another host just works. Two things to set when
+the backend is not on your own machine:
+
+```powershell
+$env:NIDS_ALLOWED_ORIGINS = "http://192.168.1.10:8000"   # only if you host the HTML elsewhere
+```
+
+To point the page at a backend on a different host than the one serving it, add
+`?api=http://192.168.1.10:8000` to the dashboard URL.
 
 ### 2. ML sensor (live_ids_v2.py)
 
@@ -103,8 +139,17 @@ venv\Scripts\python.exe live_ids_v2.py --iface "Ethernet"
 Live capture needs packet-capture drivers and privileges:
 - **Windows:** install [Npcap](https://npcap.com/); run the shell as Administrator;
   pass your real interface name to `--iface` (list them with
-  `venv\Scripts\python.exe -c "from scapy.all import get_if_list; print(get_if_list())"`).
+  `venv\Scripts\python.exe -c "from scapy.all import get_if_list; print(get_if_list())"`),
+  or use `--iface auto`.
 - **Linux:** run with `sudo`; the default interface in the code is `ens37`.
+
+If the sensor runs on a **different host than the dashboard**, point it at the
+dashboard — otherwise it POSTs alerts to its own loopback and nothing arrives:
+
+```powershell
+$env:NIDS_URL = "http://192.168.1.10:8000"   # dashboard host
+$env:NIDS_SENSOR_KEY = "<same value main.py uses>"
+```
 
 > `start.sh` automates main.py + sniffer + sensor, but is **Linux-only** (uses
 > `sudo`, `venv/bin/python`). On Windows, run `main.py` and `live_ids_v2.py` in
