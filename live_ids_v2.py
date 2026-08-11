@@ -22,6 +22,7 @@ Feature alignment:
 """
 
 import json
+import os
 import sys
 import threading
 import time
@@ -76,15 +77,22 @@ except ImportError:
 # ─────────────────────────────────────────────
 #  CONFIG
 # ─────────────────────────────────────────────
-NETWORK_INTERFACE   = "ens37"
+# Capture interface — override with NIDS_IFACE (or --iface). The lab default
+# only exists on the sensor VM; anywhere else it captures nothing.
+NETWORK_INTERFACE   = os.environ.get("NIDS_IFACE", "ens37").strip()
 MODEL_PATH          = str(ROOT / CICIDS_LIVE_MODEL_PATH)
 ENCODER_PATH        = str(ROOT / CICIDS_LIVE_ENCODER_PATH)
 META_PATH           = str(ROOT / CICIDS_LIVE_META_PATH)
-NIDS_ALERT_URL      = "http://127.0.0.1:8000/alert"
+# Where to POST ML alerts. Hardcoding loopback means a sensor running on any
+# host other than the dashboard silently delivers nothing — set NIDS_URL to the
+# dashboard host (e.g. http://192.168.1.10:8000) when they are separate boxes.
+NIDS_ALERT_URL      = os.environ.get(
+    "NIDS_URL", "http://127.0.0.1:8000").rstrip("/") + "/alert"
 ALERT_TIMEOUT_SEC   = 2         # HTTP POST timeout
 
-# Must match SENSOR_API_KEY in main.py
-SENSOR_API_KEY      = "sensor-key-change-me-in-production"
+# Must match SENSOR_API_KEY in main.py (both read NIDS_SENSOR_KEY).
+SENSOR_API_KEY      = os.environ.get(
+    "NIDS_SENSOR_KEY", "sensor-key-change-me-in-production")
 
 FLOW_MIN_PACKETS    = 5         # minimum packets before running inference
 FLOW_MAX_AGE_SEC    = 120       # expire flows older than this (prevents memory leak)
@@ -469,13 +477,13 @@ def run_inference(
         label = "attack" if is_attack else "normal"
 
         typ = f" type='{attack_type}'" if attack_type else ""
-        print(f"[ML] {flow.src} → {flow.dst} | proto={flow.proto} "
+        print(f"[ML] {flow.src} -> {flow.dst} | proto={flow.proto} "
               f"svc={flow.service} flag={flow.kdd_flag} | "
               f"pred='{label}'{typ} p={attack_prob:.2f}")
         return label, attack_prob, attack_type
 
     except Exception as e:
-        print(f"[ML] Inference error for flow {flow.src}→{flow.dst}: {e}")
+        print(f"[ML] Inference error for flow {flow.src}->{flow.dst}: {e}")
         return None, None, None
 
 
@@ -622,7 +630,7 @@ def replay_pcap(path: str):
 def _print_replay_report(path: str, n_pkts: int, results: List):
     attacks = [r for r in results if r[1] not in NORMAL_LABELS]
     print("\n" + "=" * 72)
-    print(f"  REPLAY REPORT — {path}")
+    print(f"  REPLAY REPORT - {path}")
     print("=" * 72)
     print(f"  packets={n_pkts}  flows>= {MIN_PACKETS}pkts evaluated={len(results)}  "
           f"flagged={len(attacks)}")
@@ -690,7 +698,20 @@ def main():
     print(f"[+] Alerts -> {NIDS_ALERT_URL}")
     print("-" * 60)
 
-    sniff(iface=args.iface, prn=process_packet, store=False)
+    # "auto"/empty -> let scapy pick the default interface.
+    iface = args.iface if args.iface and args.iface.lower() != "auto" else None
+    try:
+        sniff(iface=iface, prn=process_packet, store=False)
+    except Exception as e:
+        print(f"\n[!] Capture failed on '{args.iface}': {type(e).__name__}: {e}")
+        try:
+            from scapy.arch import get_if_list
+            print(f"[!] Interfaces available here: {', '.join(sorted(get_if_list()))}")
+        except Exception:
+            pass
+        print("[!] Pass --iface <name> (or set NIDS_IFACE), and run with "
+              "root/Administrator privileges.")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

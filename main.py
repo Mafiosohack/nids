@@ -46,7 +46,10 @@ except ImportError:
 # ─────────────────────────────────────────────
 #  CONFIG  (tune these to your environment)
 # ─────────────────────────────────────────────
-NETWORK_INTERFACE = "ens37"
+# Capture interface. Override per-host with NIDS_IFACE — the lab default (ens37)
+# only exists on the Ubuntu sensor VM, so a hardcoded value silently captures
+# nothing anywhere else. Empty/"auto" lets scapy pick its default interface.
+NETWORK_INTERFACE = os.environ.get("NIDS_IFACE", "ens37").strip()
 
 PORT_SCAN_THRESHOLD     = 5      # distinct ports within window → alert
 PORT_SCAN_WINDOW        = 5      # seconds
@@ -505,7 +508,7 @@ def load_asset_inventory():
     TRUSTED_ARP.clear()
     KNOWN_HOSTS.clear()
     if not ASSETS_PATH.exists():
-        print(f"[ASSETS] No inventory at {ASSETS_PATH} — ARP uses learn-on-first-sight "
+        print(f"[ASSETS] No inventory at {ASSETS_PATH} - ARP uses learn-on-first-sight "
               "(no trust anchor). Create one to enable verified ARP + rogue-host detection.")
         return
     try:
@@ -536,6 +539,9 @@ system_stats = {
     "alerts_generated": 0,
     "start_time": None,
     "running": False,
+    # Last capture failure, surfaced through /status so a dead sniffer is
+    # visible on the dashboard instead of looking like an idle network.
+    "sniffer_error": None,
 }
 
 sniffer_thread: Optional[threading.Thread] = None
@@ -725,7 +731,9 @@ def generate_alert(
     except Exception as e:
         print(f"[DB][WARN] Could not persist alert {alert_id}: {e}")
 
-    print(f"[{severity.upper():8s}] {alert_type} → {message}")
+    # ASCII arrow only: a non-UTF-8 stdout (Windows cp1252, Linux LANG=C under
+    # systemd/nohup) would raise UnicodeEncodeError here and 500 the whole alert.
+    print(f"[{severity.upper():8s}] {alert_type} -> {message}")
 
     # Advance the per-host kill-chain state (drives the Intrusion Status panel).
     update_intrusion_state(alert_type, src, message)
@@ -1477,15 +1485,64 @@ def process_packet(packet):
 # ─────────────────────────────────────────────
 #  SNIFFER THREAD
 # ─────────────────────────────────────────────
+def list_interfaces() -> List[str]:
+    """Names of capture interfaces scapy can see on this host (empty if no scapy)."""
+    if not SCAPY_AVAILABLE:
+        return []
+    try:
+        from scapy.arch import get_if_list
+        return sorted(get_if_list())
+    except Exception:
+        return []
+
+
+def resolve_interface() -> Optional[str]:
+    """NETWORK_INTERFACE, or None to let scapy choose its default interface."""
+    if not NETWORK_INTERFACE or NETWORK_INTERFACE.lower() == "auto":
+        return None
+    return NETWORK_INTERFACE
+
+
 def _sniffer_worker():
-    print(f"[SNIFFER] Capturing on interface: {NETWORK_INTERFACE}")
-    sniff(
-        iface=NETWORK_INTERFACE,
-        prn=process_packet,
-        store=False,
-        stop_filter=lambda _: sniffer_stop_event.is_set(),
-    )
-    print("[SNIFFER] Stopped.")
+    """Capture loop.
+
+    Runs in short timeout slices instead of one blocking sniff() call so that
+    /control/stop takes effect on an idle network too — stop_filter is only
+    evaluated when a packet arrives, so on a quiet link a stop request would
+    otherwise hang until the next packet.
+
+    Any capture error (missing interface, no CAP_NET_RAW / no Npcap) is recorded
+    in system_stats and flips `running` back to False. Previously the thread died
+    on the exception while `running` stayed True, so the dashboard showed a live
+    sensor capturing zero packets forever.
+    """
+    iface = resolve_interface()
+    shown = iface or "(scapy default)"
+    print(f"[SNIFFER] Capturing on interface: {shown}")
+    system_stats["sniffer_error"] = None
+    try:
+        while not sniffer_stop_event.is_set():
+            sniff(
+                iface=iface,
+                prn=process_packet,
+                store=False,
+                timeout=1,
+                stop_filter=lambda _: sniffer_stop_event.is_set(),
+            )
+        print("[SNIFFER] Stopped.")
+    except Exception as e:
+        msg = f"{type(e).__name__}: {e}"
+        system_stats["sniffer_error"] = msg
+        print(f"[SNIFFER][ERROR] Capture failed on '{shown}' -> {msg}")
+        available = list_interfaces()
+        if available:
+            print(f"[SNIFFER][ERROR] Interfaces available here: {', '.join(available)}")
+        print("[SNIFFER][ERROR] Set NIDS_IFACE to one of the above "
+              "(or 'auto'), and run with root/Administrator privileges.")
+    finally:
+        # Whatever ended the loop, the sensor is no longer capturing. Keep the
+        # reported state honest so the dashboard can't show a phantom "running".
+        system_stats["running"] = False
 
 # ─────────────────────────────────────────────
 #  AUTH HELPERS
@@ -1726,7 +1783,7 @@ def update_role(
         )
         # Revoke existing sessions — force re-login with new role
         conn.execute("DELETE FROM sessions WHERE username = ?", (username,))
-    print(f"[AUTH] Role updated: {username} → {payload.role} by {session['username']}")
+    print(f"[AUTH] Role updated: {username} -> {payload.role} by {session['username']}")
     return {"status": "ok", "username": username, "role": payload.role}
 
 
@@ -1753,7 +1810,9 @@ def status(session: dict = Depends(require_auth)):
         "alerts_generated": system_stats["alerts_generated"],
         "alerts_stored":    len(alerts),
         "uptime_seconds":   uptime,
-        "interface":        NETWORK_INTERFACE,
+        "interface":        NETWORK_INTERFACE or "auto",
+        "sniffer_error":    system_stats["sniffer_error"],
+        "available_interfaces": list_interfaces(),
         "user":             session["username"],
         "role":             session["role"],
     }
@@ -1959,14 +2018,36 @@ def control_start(session: dict = Depends(require_permission("control_sniffer"))
     if not SCAPY_AVAILABLE:
         raise HTTPException(503, "Scapy not installed.")
 
+    # Validate the interface up front. Reporting "started" for an interface that
+    # does not exist is what made a dead sensor look like a quiet network.
+    iface = resolve_interface()
+    available = list_interfaces()
+    if iface and available and iface not in available:
+        raise HTTPException(
+            400,
+            f"Capture interface '{iface}' not found on this host. "
+            f"Available: {', '.join(available)}. "
+            f"Set NIDS_IFACE to one of these (or 'auto') and restart.",
+        )
+
     sniffer_stop_event.clear()
-    sniffer_thread = threading.Thread(target=_sniffer_worker, daemon=True)
-    sniffer_thread.start()
+    system_stats["sniffer_error"] = None
     system_stats["running"]    = True
     system_stats["start_time"] = time.time()
+    sniffer_thread = threading.Thread(target=_sniffer_worker, daemon=True)
+    sniffer_thread.start()
+
+    # Give the capture loop a moment to fail loudly (permissions, missing Npcap)
+    # so the caller learns about it now rather than seeing a phantom "running".
+    time.sleep(0.5)
+    if system_stats["sniffer_error"] or not sniffer_thread.is_alive():
+        err = system_stats["sniffer_error"] or "capture thread exited immediately"
+        system_stats["running"] = False
+        raise HTTPException(500, f"Sniffer failed to start: {err}")
+
     print(f"[NIDS] Sniffer started by {session['username']}")
 
-    return {"status": "started", "interface": NETWORK_INTERFACE}
+    return {"status": "started", "interface": iface or "(scapy default)"}
 
 
 @app.post("/control/stop", tags=["Control"])

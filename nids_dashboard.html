@@ -358,7 +358,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
       <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
       <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
     </svg>
-    <strong>Backend offline.</strong> Cannot reach <code>http://127.0.0.1:8000</code>
+    <strong>Backend offline.</strong> Cannot reach <code id="offline-api">the API</code>
   </div>
 
   <!-- STAT GRID -->
@@ -570,7 +570,20 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 /* ═══════════════════════════════════════════
    CONFIG
 ═══════════════════════════════════════════ */
-const API       = 'http://127.0.0.1:8000';
+/* Talk to whichever origin served this page. A hardcoded 127.0.0.1 breaks the
+   moment the backend is not on the same machine as the browser (sensor VM,
+   remote host, different port) — every fetch then hits the *browser's* own
+   localhost and the dashboard reports "backend offline".
+   Opened straight off disk (file://) there is no origin to inherit, so fall
+   back to the local default. Override either case with ?api=http://host:8000 */
+const API = (() => {
+  const override = new URLSearchParams(location.search).get('api');
+  if (override) return override.replace(/\/+$/, '');
+  if (location.protocol === 'http:' || location.protocol === 'https:') {
+    return location.origin;
+  }
+  return 'http://127.0.0.1:8000';
+})();
 const POLL_MS   = 2000;
 const MAX_DISP  = 30;
 const DEDUP_MS  = 60_000;
@@ -588,7 +601,11 @@ let currentRole = null;
 let allAlerts    = [];
 let lastAlertIds = new Set();
 let currentStatus = {};
-let apiOnline    = false;
+/* null, not false: setApiOnline() early-returns when the new state equals the
+   current one, so starting at `false` swallowed the very first failure — a
+   backend that was unreachable from the start never raised the offline banner
+   or flipped the chip, leaving a silent, empty dashboard. */
+let apiOnline    = null;
 let tlChart      = null;
 let donutChart   = null;
 let pollIntervals = [];
@@ -836,8 +853,18 @@ function applyStatus(d) {
   const packets=d.packets_captured??0, alertsGen=d.alerts_generated??0;
   const upSec=d.uptime_seconds??0, iface=d.interface||'—';
   setText('tp-iface',iface);
-  setText('tp-sniffer',d.running?'Active':'Stopped');
-  el('tp-sniffer').style.color=d.running?'var(--green)':'var(--amber)';
+  /* A capture that died (bad interface, missing privileges) must not read as a
+     quiet network — show the failure instead of a green "Active". */
+  if (d.sniffer_error) {
+    setText('tp-sniffer','Failed');
+    el('tp-sniffer').style.color='var(--red)';
+    el('tp-sniffer').title=d.sniffer_error;
+    toastOnce('sniffer-error','Capture Failed',d.sniffer_error,'error');
+  } else {
+    setText('tp-sniffer',d.running?'Active':'Stopped');
+    el('tp-sniffer').style.color=d.running?'var(--green)':'var(--amber)';
+    el('tp-sniffer').title='';
+  }
   setText('tp-uptime',fmtUptime(upSec));
   const pps=upSec>0?(packets/upSec).toFixed(1):0;
   setText('tp-rate',pps+' pkt/s');
@@ -856,6 +883,7 @@ function setApiOnline(online) {
     banner.classList.add('hidden');
   } else {
     chip.textContent='API OFFLINE'; chip.className='api-chip offline';
+    setText('offline-api', API);
     banner.classList.remove('hidden');
     setText('tp-sniffer','Offline');
     el('tp-sniffer').style.color='var(--red)';
@@ -1207,6 +1235,15 @@ function toast(title,msg,type=''){
   const t=el('toast'); el('toast-title').textContent=title; el('toast-msg').textContent=msg;
   t.className='toast t-'+type; t.classList.add('show');
   clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'),4000);
+}
+
+/* Toast that fires once per distinct message, so a condition repeated by every
+   status poll (e.g. a failed sniffer) does not re-toast every 2 seconds. */
+const _toastSeen = {};
+function toastOnce(key,title,msg,type=''){
+  if (_toastSeen[key]===msg) return;
+  _toastSeen[key]=msg;
+  toast(title,msg,type);
 }
 
 /* ═══════════════════════════════════════════
