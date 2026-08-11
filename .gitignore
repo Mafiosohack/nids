@@ -45,9 +45,31 @@ data/cicids2017/
 *.md5
 
 # Runtime databases
+# NOTE: nids_users.db was committed before this rule existed and is still
+# reachable in git history (blob 2d36330, commits 53d177f / 0a744d8). Adding a
+# path here stops FUTURE commits; it does not remove what is already published.
 *.db
 *.sqlite
 *.sqlite3
+
+# ── Site-specific security config — NEVER commit ────────────────────────────
+# assets.json is the real inventory: internal IPs, gateway/host MAC addresses,
+# per-host listening-port snapshots (a complete attack-surface map), permitted
+# egress, and which host pairs may hold a shell. Publishing it hands an attacker
+# the reconnaissance they would otherwise have to run a scan to get — and the
+# scan is the part this NIDS is built to catch.
+# Commit assets.example.json instead; it holds documentation-only placeholders.
+assets.json
+assets.*.json
+!assets.example.json
+
+# Baseline output from baseline_assets.py — same content, same reason.
+baseline.json
+*.assets.json
+
+# Captured traffic (may contain credentials, session tokens, real payloads)
+*.pcapng
+*.cap
 
 # IDE
 .vscode/

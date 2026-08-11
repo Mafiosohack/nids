@@ -209,15 +209,32 @@ BASELINE_MIN_COUNT      = 20     # ignore trivially small buckets (noise floor)
 #  AUTH CONFIG
 # ─────────────────────────────────────────────
 _DEFAULT_SENSOR_KEY = "sensor-key-change-me-in-production"
-_DEFAULT_ADMIN_PW   = "nids@admin123"
 
 # Sensor pre-shared key — override in production via env NIDS_SENSOR_KEY
 # (must match SENSOR_API_KEY in the sensors). Falls back to the shared default.
+#
+# This one stays a fixed default on purpose: main.py and the three sensors
+# (live_ids_v2 / host_log_sensor / cloud_log_sensor) must agree on it, and
+# randomising it here would silently break every sensor that was not restarted
+# with the new value. Knowing this key only lets someone POST fake alerts — it
+# does not read them, which needs a user session — so on an isolated lab segment
+# the exposure is alert injection, not disclosure. On any routable network,
+# set NIDS_SENSOR_KEY everywhere. Startup warns loudly when the default is live.
 SENSOR_API_KEY = os.environ.get("NIDS_SENSOR_KEY", _DEFAULT_SENSOR_KEY)
 
-# Initial admin password used ONLY to seed a brand-new DB. Override via env
-# NIDS_ADMIN_PASSWORD so a fresh deployment never ships a publicly-known password.
-ADMIN_SEED_PASSWORD = os.environ.get("NIDS_ADMIN_PASSWORD", _DEFAULT_ADMIN_PW)
+# Initial admin password, used ONLY to seed a brand-new DB.
+#
+# There used to be a hardcoded default here ("nids@admin123"). A default that
+# lives in a public repository is not a default, it is a published credential:
+# every deployment that did not override it shipped with a password anyone could
+# read off GitHub. A copy of this project's own user DB, seeded with exactly that
+# password, is still reachable in this repo's git history.
+#
+# So: when NIDS_ADMIN_PASSWORD is unset we now generate a random one per
+# deployment and print it once at startup. Nothing publicly known can log in.
+# Set NIDS_ADMIN_PASSWORD if you want to choose it yourself (recommended for
+# anything scripted, since the generated one is only ever shown once).
+ADMIN_SEED_PASSWORD = os.environ.get("NIDS_ADMIN_PASSWORD") or None
 
 # Password hashing (PBKDF2-HMAC-SHA256). Stdlib only; salted + iterated.
 PBKDF2_ITERATIONS = 200_000
@@ -335,17 +352,44 @@ def init_db():
         # Seed admin only if no users exist yet.
         count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
         if count == 0:
+            generated = ADMIN_SEED_PASSWORD is None
+            password = ADMIN_SEED_PASSWORD or _generate_admin_password()
             conn.execute(
                 "INSERT INTO users (username, password, role, created_at) VALUES (?,?,?,?)",
-                ("admin", _hash_password(ADMIN_SEED_PASSWORD), "admin",
+                ("admin", _hash_password(password), "admin",
                  datetime.now().isoformat()),
             )
-            if ADMIN_SEED_PASSWORD == _DEFAULT_ADMIN_PW:
-                print("[AUTH][WARN] Seeded admin with the PUBLIC default password "
-                      f"'{_DEFAULT_ADMIN_PW}'. Change it now (POST /auth/change-password) "
-                      "or set NIDS_ADMIN_PASSWORD before first run.")
+            if generated:
+                # Shown ONCE. Only the PBKDF2 hash is stored, so this cannot be
+                # recovered later — if it is missed, delete the DB and restart,
+                # or set NIDS_ADMIN_PASSWORD and do the same.
+                banner = "=" * 68
+                safe_print(f"\n{banner}")
+                safe_print("  ADMIN ACCOUNT CREATED - THIS PASSWORD IS SHOWN ONLY ONCE")
+                safe_print(banner)
+                safe_print(f"    username: admin")
+                safe_print(f"    password: {password}")
+                safe_print(banner)
+                safe_print("  Randomly generated because NIDS_ADMIN_PASSWORD was not set,")
+                safe_print("  so that no deployment ships with a password published in")
+                safe_print("  this repository. Save it now, then change it with")
+                safe_print("  POST /auth/change-password.")
+                safe_print("  Lost it? Delete nids_users.db and restart to re-seed.")
+                safe_print(f"{banner}\n")
             else:
                 print("[AUTH] Seeded admin from NIDS_ADMIN_PASSWORD.")
+
+
+def _generate_admin_password(length: int = 20) -> str:
+    """A readable, high-entropy seed password.
+
+    `secrets.choice` over an alphabet with the visually ambiguous characters
+    removed (0/O, 1/l/I) — this gets read off a terminal and retyped, and a
+    password that cannot be transcribed reliably gets replaced by a weak one.
+    20 chars of this alphabet is ~115 bits.
+    """
+    alphabet = "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
 def _hash_password(password: str) -> str:

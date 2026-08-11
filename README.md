@@ -75,12 +75,32 @@ $env:NIDS_IFACE = "auto"          # or a real interface name — see below
 venv\Scripts\python.exe main.py
 ```
 
-Then open **http://127.0.0.1:8000**. A default admin is seeded on first run:
+Then open **http://127.0.0.1:8000**. An `admin` account is seeded on first run
+with a **randomly generated password, printed once to the console**:
 
-- **user:** `admin`  **password:** `nids@admin123`
+```
+====================================================================
+  ADMIN ACCOUNT CREATED - THIS PASSWORD IS SHOWN ONLY ONCE
+====================================================================
+    username: admin
+    password: <20 random characters>
+====================================================================
+```
 
-Change it immediately, or set `NIDS_ADMIN_PASSWORD` before the first run so the
-default is never used. (The user DB is `nids_users.db`, created automatically.)
+Save it before the terminal scrolls. Only the PBKDF2 hash is stored, so it cannot
+be recovered afterwards — if you lose it, delete `nids_users.db` and restart to
+re-seed. To choose the password yourself (recommended for anything scripted):
+
+```powershell
+$env:NIDS_ADMIN_PASSWORD = "<your password>"    # before the first run
+```
+
+> **Why random rather than a documented default?** A default password in a public
+> repository is a published credential — every deployment that didn't override it
+> could be logged into by anyone who read the README. This project shipped with
+> one (`nids@admin123`) until 2026-08-11, and a copy of its own user DB seeded
+> with that password is still reachable in this repo's git history. Randomising
+> per deployment removes the class of problem. See `docs/SECURITY.md`.
 
 #### Capture interface (`NIDS_IFACE`)
 
