@@ -1135,9 +1135,10 @@ function renderIncidents(data) {
 
 /* ═══════════════════════════════════════════
    RULE COVERAGE
-   Loaded once. The tier split is the honest part: five specific exploit
-   signatures are not the same kind of thing as three behavioural rules that
-   generalise, and presenting one number would overstate what this sensor sees.
+   Loaded once. The tier split is the honest part: specific exploit signatures
+   are not the same kind of thing as behavioural rules that generalise, and
+   presenting one number would overstate what this sensor sees. Every count
+   shown comes from the API, so adding a rule never leaves a stale figure here.
 ═══════════════════════════════════════════ */
 async function loadRuleCoverage() {
   try {

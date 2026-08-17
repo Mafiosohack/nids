@@ -1501,6 +1501,10 @@ def process_packet(packet):
             # payload is truncated to 4096 for signature matching; the shell-shape
             # rule needs the TRUE length, so pass it separately.
             payload_len=len(tcp.payload),
+            # Sequence number lets the TLS-handshake rule tell the connection's
+            # first data segment from a reordered later one, whose mid-stream
+            # bytes would otherwise read as cleartext.
+            seq=int(getattr(tcp, "seq", 0)),
             fragment_count=fragment_count,
             is_outbound=(is_internal(src) and not is_internal(dst)),
         )

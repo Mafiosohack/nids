@@ -13,7 +13,8 @@ Order of operations per TCP packet:
   3. behavioural scan     -> TCP_{SYN,CONNECT}_SCAN
   4. brute force          -> BRUTEFORCE_{STANDARD,LOW}_RATE
   5. Tier 1 payload sigs  -> EXPLOIT_*
-  6. Tier 2 behaviour     -> BEHAVIOR_*
+  6. Tier 2 behaviour     -> BEHAVIOR_*, including the TLS-handshake check on the
+     first data packet of any flow to a TLS port
   7. every finding is published: deduped into the AlertStore, then offered to
      the correlation engine, which may open an incident
 
@@ -35,6 +36,7 @@ from .interactive_shell import InteractiveShellDetector
 from .retention import AlertStore
 from .rules import RULES, TIER_CORRELATION, TIER_EXPLOIT_2, severity_rank
 from .scan_rules import BruteForceDetector, PortScanDetector, signature_finding
+from .tls_shape import DEFAULT_TLS_PORTS, TLSPortInspector
 
 FIN, SYN, RST, PSH, ACK, URG = 0x01, 0x02, 0x04, 0x08, 0x10, 0x20
 
@@ -57,6 +59,10 @@ class PipelineConfig:
     outbound_learn_sec: float = 300.0
     beacon_min_hits: int = 6
     beacon_max_cv: float = 0.25
+    beacon_max_size_cv: float = 0.15
+    # Ports where a TLS handshake is expected on the first client data packet.
+    tls_expected_ports: Set[int] = field(
+        default_factory=lambda: set(DEFAULT_TLS_PORTS))
     # Interactive-shell shape detection. Thresholds are conservative by default:
     # 40 packets over 20s of a turn-taking, keystroke-shaped conversation.
     shell_min_packets: int = 40
@@ -106,7 +112,11 @@ class DetectionPipeline:
         self.listening = ListeningPortMonitor(
             baseline=self.cfg.listening_baseline, clock=clock)
         self.beacon = BeaconDetector(min_hits=self.cfg.beacon_min_hits,
-                                     max_cv=self.cfg.beacon_max_cv, clock=clock)
+                                     max_cv=self.cfg.beacon_max_cv,
+                                     max_size_cv=self.cfg.beacon_max_size_cv,
+                                     clock=clock)
+        self.tls = TLSPortInspector(tls_ports=self.cfg.tls_expected_ports,
+                                    clock=clock)
         self.shell = InteractiveShellDetector(
             min_packets=self.cfg.shell_min_packets,
             min_duration_sec=self.cfg.shell_min_duration_sec,
@@ -125,12 +135,17 @@ class DetectionPipeline:
         fragment_count: int = 0,
         is_outbound: bool = False,
         payload_len: Optional[int] = None,
+        seq: Optional[int] = None,
     ) -> List[dict]:
         """Run every TCP rule. Returns the alerts published for this packet.
 
         `payload` may be truncated for signature matching; `payload_len` carries
         the TRUE length when it is, because the shell-shape rule measures packet
         sizes and a truncated length would corrupt the measurement.
+
+        `seq` is the TCP sequence number, used only by the TLS-handshake rule to
+        tell the connection's first data segment from a reordered later one. It
+        is optional: without it that rule trusts arrival order instead.
         """
         now = self.clock() if ts is None else ts
         flags = int(flags)
@@ -170,6 +185,9 @@ class DetectionPipeline:
             # Record who initiated, so the shell detector can tell a reverse
             # shell (server types) from a bind shell (client types).
             self.shell.open_flow(src, dst, sport, dport, ts=now)
+            # Same reason for TLS: only a flow whose SYN we saw can be judged on
+            # "did its FIRST data packet carry a handshake".
+            self.tls.open_flow(src, dst, sport, dport, ts=now, seq=seq)
         elif syn and ack:
             self.port_scan.observe_synack(src, dst, sport, ts=now)
             # A SYN-ACK is proof the port is accepting: bind-shell check.
@@ -188,8 +206,22 @@ class DetectionPipeline:
             f = self.shell.observe_data(src, dst, sport, dport, payload_len, ts=now)
             if f is not None:
                 tier2_hits.append(f)
+            # Per-check-in payload size, the beacon detector's second feature.
+            # Only the client's bytes count, so this is gated on is_outbound —
+            # the same orientation the beacon's (src, dst) key uses.
+            if is_outbound:
+                self.beacon.observe_bytes(src, dst, payload_len, ts=now)
+        # TLS handshake presence. Uses the payload BYTES (only the first few) and
+        # renders a verdict on the first data packet, so it fires long before the
+        # shell-shape rule has enough packets to say anything.
+        if payload:
+            f = self.tls.observe_data(src, dst, sport, dport, payload, ts=now,
+                                      seq=seq)
+            if f is not None:
+                tier2_hits.append(f)
         if rst or (flags & FIN):
             self.shell.close_flow(src, dst, sport, dport)
+            self.tls.close_flow(src, dst, sport, dport)
 
         # 5. Tier 1 payload signatures
         if payload:
@@ -326,4 +358,6 @@ class DetectionPipeline:
         self.outbound.reset()
         self.listening.reset()
         self.beacon.reset()
+        self.shell.reset()
+        self.tls.reset()
         self._next_id = 0

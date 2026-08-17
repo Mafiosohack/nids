@@ -295,9 +295,28 @@ _RULES: List[Rule] = [
          TIER_EXPLOIT_2, "command_and_control", "Command and Control", "T1071",
          "Repeated connections to one destination at a regular interval "
          "(low coefficient of variation on inter-arrival gaps) — a check-in "
-         "heartbeat. Independent of payload, protocol and encryption.",
+         "heartbeat. Independent of payload, protocol and encryption. When the "
+         "per-check-in byte counts are also observed, their variation is a "
+         "second, independent feature: near-identical request sizes on a fixed "
+         "timer promote the finding, widely varying ones demote it to a "
+         "scheduled poller.",
          discriminators=("beacon_interval_sec", "interval_cv", "connections",
-                         "destination", "indicator"),
+                         "destination", "size_evidence", "indicator"),
+         generalizes=True),
+
+    Rule("BEHAVIOR_CLEARTEXT_ON_TLS_PORT", "No TLS Handshake on TLS Port",
+         "critical",
+         TIER_EXPLOIT_2, "command_and_control", "Command and Control", "T1571",
+         "A connection to a port where TLS is the convention (443, 993, 8443, "
+         "…) whose first client data packet does not begin with a TLS handshake "
+         "record. Attackers pick 443 because egress filters allow it and often "
+         "do not wrap the channel in real TLS. Costs three bytes at a fixed "
+         "offset and needs no baseline, so it renders a verdict on the first "
+         "data packet — far earlier than the traffic-shape rule can. Only flows "
+         "whose SYN was observed are judged, so a sensor starting mid-session "
+         "cannot produce a false positive.",
+         discriminators=("dst_port", "destination", "payload_class",
+                         "first_bytes_hex", "indicator"),
          generalizes=True),
 
     # ── Other network behaviour (pre-existing detectors, now ID'd) ───────────
@@ -476,8 +495,10 @@ def coverage_report() -> Dict:
     """Machine-readable rule coverage, for `GET /rules/coverage` and the dashboard.
 
     The point of this structure is the honesty note per tier. Tier 1 lists five
-    exploits and catches those five; Tier 2 lists three behaviours and catches an
-    open-ended class. Presenting them as one number would overstate coverage.
+    exploits and catches those five; Tier 2 lists a handful of behaviours and
+    catches an open-ended class. Presenting them as one number would overstate
+    coverage. Counts are computed, never written down, so adding a rule cannot
+    leave a stale figure behind.
     """
     tiers: Dict[str, Dict] = {}
     for rule in RULES.values():
@@ -524,7 +545,8 @@ def coverage_report() -> Dict:
     if TIER_EXPLOIT_2 in tiers:
         tiers[TIER_EXPLOIT_2]["coverage_note"] = (
             "BROAD: these detect what a successful exploit CAUSES (a shell calling "
-            "out, a new port listening, a C2 heartbeat) rather than how it was "
+            "out, a new port listening, a C2 heartbeat, a session on 443 that "
+            "never negotiated TLS) rather than how it was "
             "delivered. They therefore fire on exploitation techniques beyond the "
             "five enumerated in Tier 1, including ones with no signature written "
             "for them. Ranked above Tier 1 for this reason."

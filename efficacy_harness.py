@@ -45,6 +45,10 @@ WEB = "93.184.216.34"
 TARGET_BASELINE_PORTS = [21, 22, 23, 25, 80, 111, 139, 445, 512, 1099,
                          2121, 3306, 3632, 5432, 5900, 6667, 8180]
 
+# A real TLS ClientHello opening: record type 22 (handshake), version 3.1,
+# then handshake type 1. Every TLS version in use starts this way.
+TLS_CLIENT_HELLO = bytes.fromhex("160301012c010001280303") + b"\x00" * 32
+
 
 class Clock:
     def __init__(self, start=1_700_000_000.0):
@@ -294,6 +298,60 @@ def tier2_beacon(pipe, clock):
                            ts=clock.now + i * 60.0, is_outbound=True)
 
 
+def tier2_beacon_fixed_size(pipe, clock):
+    """A beacon whose check-in request is the same size every time.
+
+    Timing regularity plus payload-size regularity are two independent features
+    agreeing, which is the strongest statement the beacon rule can make.
+    """
+    for i in range(9):
+        t = clock.now + i * 60.0
+        pipe.on_tcp_packet(TARGET, C2, 52000 + i, 443, SYN, ts=t,
+                           is_outbound=True)
+        pipe.on_tcp_packet(TARGET, C2, 52000 + i, 443, PSH | ACK,
+                           payload=TLS_CLIENT_HELLO,
+                           payload_len=412 + (i % 3), ts=t + 0.1,
+                           is_outbound=True)
+
+
+def c2_cleartext_on_443(pipe, clock):
+    """An implant using 443 purely because egress filters allow it, without
+    bothering to wrap the channel in real TLS. One data packet is enough."""
+    pipe.on_tcp_packet(WORKSTATION, C2, 51500, 443, SYN, ts=clock.now)
+    pipe.on_tcp_packet(WORKSTATION, C2, 51500, 443, PSH | ACK,
+                       payload=bytes.fromhex("deadbeef0011223344556677"),
+                       ts=clock.now + 0.2, is_outbound=True)
+
+
+def cleartext_on_443_mid_session(pipe, clock):
+    """THE FALSE-POSITIVE GUARD: the same cleartext bytes, but the sensor never
+    saw the SYN. Mid-stream TLS is indistinguishable from cleartext on a
+    first-byte test, so the rule must decline to render a verdict."""
+    pipe.on_tcp_packet(WORKSTATION, C2, 51600, 443, PSH | ACK,
+                       payload=bytes.fromhex("deadbeef0011223344556677"),
+                       ts=clock.now, is_outbound=True)
+
+
+def benign_real_https(pipe, clock):
+    """Ordinary HTTPS: the handshake is right there in the first data packet."""
+    for i in range(5):
+        t = clock.now + i * 7.0
+        pipe.on_tcp_packet(WORKSTATION, WEB, 55000 + i, 443, SYN, ts=t,
+                           is_outbound=True)
+        pipe.on_tcp_packet(WORKSTATION, WEB, 55000 + i, 443, PSH | ACK,
+                           payload=TLS_CLIENT_HELLO, ts=t + 0.05,
+                           is_outbound=True)
+
+
+def benign_starttls_smtp(pipe, clock):
+    """SMTP submission on 587 opens in CLEARTEXT and upgrades later — that is
+    the protocol working correctly, so 587 must not be in the watched set."""
+    pipe.on_tcp_packet(WORKSTATION, WEB, 55100, 587, SYN, ts=clock.now)
+    pipe.on_tcp_packet(WORKSTATION, WEB, 55100, 587, PSH | ACK,
+                       payload=b"EHLO workstation.lab.local\r\n",
+                       ts=clock.now + 0.1, is_outbound=True)
+
+
 def full_kill_chain(pipe, clock):
     _syn_sweep(pipe, clock, KALI, TARGET, [21, 22, 23, 25, 80, 110, 139, 445])
     clock.advance(30)
@@ -433,6 +491,21 @@ CASES: List[Case] = [
     Case("C2 beaconing", "exploit_tier2", tier2_beacon,
          expect={"BEHAVIOR_C2_BEACON"},
          note="interval-variance; payload and encryption irrelevant"),
+    Case("C2 beaconing, fixed check-in size", "exploit_tier2",
+         tier2_beacon_fixed_size,
+         expect={"BEHAVIOR_C2_BEACON"},
+         forbid={"BEHAVIOR_CLEARTEXT_ON_TLS_PORT"},
+         note="timing AND size regular -> promoted; real TLS keeps the "
+              "handshake rule quiet"),
+
+    # ── No TLS handshake on a TLS port ───────────────────────────────────────
+    Case("C2 on :443 with no TLS handshake", "tls_shape", c2_cleartext_on_443,
+         expect={"BEHAVIOR_CLEARTEXT_ON_TLS_PORT"},
+         note="verdict on the FIRST data packet; no baseline, no threshold"),
+    Case("Same bytes, but SYN never seen", "tls_shape",
+         cleartext_on_443_mid_session,
+         forbid={"BEHAVIOR_CLEARTEXT_ON_TLS_PORT"},
+         note="a sensor that joined mid-session must render no verdict"),
 
     # ── Shell on an allowed port — the hole found after the first round ──────
     Case("Shell on :443, host NOT baselined", "shell_access",
@@ -485,6 +558,12 @@ CASES: List[Case] = [
          benign_allowlisted_ssh, benign=True, expect_incident=False,
          config={"shell_authorized_pairs": {(ADMIN, TARGET)}},
          note="the escape hatch for hosts where host_log_sensor.py is absent"),
+    Case("Benign: real HTTPS", "benign", benign_real_https,
+         benign=True, expect_incident=False,
+         note="negative case for the TLS-handshake rule"),
+    Case("Benign: STARTTLS SMTP on :587", "benign", benign_starttls_smtp,
+         benign=True, expect_incident=False,
+         note="opening in cleartext is correct here; 587 is not a TLS port"),
     Case("Benign: bulk file transfer", "benign", benign_bulk_transfer,
          benign=True, expect_incident=False,
          note="negative case for the interactive-shell shape"),

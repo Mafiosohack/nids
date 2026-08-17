@@ -59,8 +59,34 @@ produced them — including exploits with no signature written for them.
 | `BEHAVIOR_INTERACTIVE_SHELL` | someone is typing commands | traffic **shape**: keystroke-sized packets one way, output bursts the other, turn-taking, long-lived, low-volume |
 | `BEHAVIOR_UNEXPECTED_OUTBOUND` | reverse shell | a host whose baseline outbound is ~zero initiates a connection |
 | `BEHAVIOR_NEW_LISTENING_PORT` | bind shell | a port answering SYN-ACK that is absent from the known-good snapshot |
-| `BEHAVIOR_C2_BEACON` | C2 check-in | connections at a regular interval (low interval CV) |
+| `BEHAVIOR_C2_BEACON` | C2 check-in | connections at a regular interval (low interval CV), plus low variation in per-check-in payload size |
+| `BEHAVIOR_CLEARTEXT_ON_TLS_PORT` | channel using 443 for egress, not for HTTPS | the first client data packet on a TLS port does not open with a TLS handshake record |
 | `BEHAVIOR_UNCOMMON_EGRESS_PORT` | reverse shell (fallback) | outbound to a non-client port, for hosts with no baseline |
+
+### Two features, not one threshold twice — `BEHAVIOR_C2_BEACON`
+
+Timing regularity alone has real benign lookalikes: NTP, health checks,
+monitoring pollers and update agents are all metronomic *by design*, and they are
+this rule's dominant false-positive source. What separates them from an implant
+is what they send. A beacon asking "any tasks?" emits a near-identical request
+every check-in, because that request is a fixed structure with a fixed-size
+session id. A poller's body tracks whatever it is reporting.
+
+So the rule computes a second coefficient of variation, over the client bytes
+sent per check-in, and lets the two features disagree:
+
+| interval CV | payload-size CV | verdict |
+|---|---|---|
+| low | low | **critical** — two independent regularities agreeing |
+| low | high | **medium** — reads as a scheduled job, still recorded |
+| low | not measured | **high** (catalogue) — `size_evidence: unavailable` |
+
+The interval CV remains the gate: identical payloads at irregular times are a
+client that always sends the same request, not a heartbeat. Byte *counts* are
+measured without reading byte *content*, so the second feature survives
+encryption exactly as the first one does. A deployment that never feeds sizes in
+behaves as the rule did before the feature existed, and says so rather than
+implying a measurement it never took.
 
 ### "They already have a shell" — how the layers cover it
 
@@ -74,16 +100,32 @@ tcp/443**. `BEHAVIOR_UNEXPECTED_OUTBOUND` only watches hosts listed in
 matching the shape of a human at a keyboard. Measured behaviour, from the
 efficacy harness:
 
-| Setup | On the callback SYN | Once the attacker types |
-|---|---|---|
-| host not baselined | *nothing* | `BEHAVIOR_INTERACTIVE_SHELL` |
-| baselined, port collapsed to any-destination | *nothing* | `BEHAVIOR_INTERACTIVE_SHELL` |
-| baselined per-destination | `BEHAVIOR_UNEXPECTED_OUTBOUND` | + `BEHAVIOR_INTERACTIVE_SHELL` |
+| Setup | On the callback SYN | On the first data packet | Once the attacker types |
+|---|---|---|---|
+| host not baselined | *nothing* | `BEHAVIOR_CLEARTEXT_ON_TLS_PORT`¹ | `BEHAVIOR_INTERACTIVE_SHELL` |
+| baselined, port collapsed to any-destination | *nothing* | `BEHAVIOR_CLEARTEXT_ON_TLS_PORT`¹ | `BEHAVIOR_INTERACTIVE_SHELL` |
+| baselined per-destination | `BEHAVIOR_UNEXPECTED_OUTBOUND` | + `BEHAVIOR_CLEARTEXT_ON_TLS_PORT`¹ | + `BEHAVIOR_INTERACTIVE_SHELL` |
 
-The two are complementary and worth having both: a baseline catches the callback
-*immediately*, before a single command is typed, but only if the destination is
-genuinely new for that host. The shape rule always catches it, but not until
-somebody actually uses the shell.
+¹ only if the channel is not wrapped in real TLS. Commodity tooling frequently
+is not — 443 is chosen for the egress filter, not the protocol — but a careful
+operator defeats this rule, and nothing here should be read as covering that
+case. JA3/JA4 fingerprinting is what addresses it, and it is **not implemented**.
+
+The three are complementary and worth having all of them, because they need
+different amounts of evidence:
+
+- a **baseline** catches the callback *immediately*, before a single byte of
+  data, but only if the destination is genuinely new for that host;
+- the **TLS-handshake check** needs one data packet and no baseline at all, but
+  only sees the case where the attacker did not bother with real TLS;
+- the **shape rule** always catches it whatever the encryption, but not until
+  somebody actually sits down and uses the shell.
+
+The TLS check only judges flows whose SYN it observed. Mid-stream, an encrypted
+TLS record (content type 23) is indistinguishable from cleartext to a first-byte
+test, so a sensor that started mid-session renders no verdict rather than a
+guess. That single guard is what keeps a three-byte test from becoming an
+alert-fatigue machine, and the efficacy harness has a case pinning it.
 
 **Legitimate SSH is the unavoidable false positive**, because an SSH session *is*
 an interactive shell — same shape, same thing. No threshold separates them, so
