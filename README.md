@@ -185,6 +185,20 @@ and `detection/pipeline.py` is where the detectors are composed. The tests and
 the efficacy harness drive that same pipeline, so what they exercise is what
 runs live.
 
+### Per-host profiles
+
+`detection/host_profile.py` records what each internal host normally does —
+peers, ports, volume, send/receive ratio, active hours, TLS fingerprints — so a
+rule can ask *"is this new for this host?"* instead of *"is this big?"*. It is
+not a detector: it raises no alerts, it answers questions. Every answer carries
+`confident` plus a `caveat`, because a profile that started ninety seconds ago
+thinks every peer is new, and shipping that as a detection would be a statement
+about when the sensor booted rather than about the host.
+
+Profiles persist to `host_profiles.json` (gitignored: it is a communication
+graph of the monitored segment). Inspect them at `GET /hosts/profiles` and
+`GET /hosts/profiles/{ip}`.
+
 **Detection is network-only.** The sensor sees packets on the monitored segment
 and infers everything from them: no host, process, or EDR visibility. It cannot
 see in-memory execution, an exploit inside TLS it cannot decrypt, local privilege
@@ -195,7 +209,7 @@ escalation, or whether a login actually succeeded. Host evidence comes from
 ### Running the checks
 
 ```powershell
-venv\Scripts\python.exe -m unittest discover -s tests -t tests    # 112 unit tests
+venv\Scripts\python.exe -m unittest discover -s tests -t tests    # 197 unit tests
 venv\Scripts\python.exe efficacy_harness.py                       # TP/FP/FN report
 venv\Scripts\python.exe efficacy_harness.py -v --json             # detail / machine-readable
 ```

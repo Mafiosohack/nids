@@ -18,6 +18,11 @@ Order of operations per TCP packet:
   7. every finding is published: deduped into the AlertStore, then offered to
      the correlation engine, which may open an incident
 
+Running alongside all of that, and emitting nothing: the `HostProfileStore` is
+fed every connection and every byte, so that rules asking "is this normal for
+THIS host" have a memory to ask. It is deliberately not in the numbered list —
+it produces no findings of its own.
+
 Tier 2 findings are published before Tier 1 findings from the same packet, so
 the exploit-agnostic evidence leads.
 """
@@ -32,6 +37,7 @@ from .exploit_tier1 import Tier1Engine
 from .exploit_tier2 import (BeaconDetector, ListeningPortMonitor,
                             OutboundAnomalyDetector)
 from .findings import Finding
+from .host_profile import HostProfileStore
 from .interactive_shell import InteractiveShellDetector
 from .retention import AlertStore
 from .rules import RULES, TIER_CORRELATION, TIER_EXPLOIT_2, severity_rank
@@ -70,6 +76,15 @@ class PipelineConfig:
     shell_expected_ports: Set[int] = field(default_factory=lambda: {22})
     # Standing (client, server) exemptions for hosts with no host_log_sensor.py.
     shell_authorized_pairs: Set[Tuple[str, str]] = field(default_factory=set)
+    # Per-host profile store. Not a detector: it records what each host
+    # normally does so novelty-based rules have something to compare against.
+    # `profile_host_filter` narrows it to the network being defended (main.py
+    # passes is_internal); None profiles every host seen, bounded by max_hosts.
+    profile_min_observations: int = 20
+    profile_min_age_sec: float = 900.0
+    profile_period_sec: float = 86400.0
+    profile_max_hosts: int = 4096
+    profile_host_filter: Optional[Callable[[str], bool]] = None
     # Retention
     alert_capacity: int = 5000
     dedup_window_sec: float = 300.0
@@ -117,6 +132,12 @@ class DetectionPipeline:
                                      clock=clock)
         self.tls = TLSPortInspector(tls_ports=self.cfg.tls_expected_ports,
                                     clock=clock)
+        self.profiles = HostProfileStore(
+            min_observations=self.cfg.profile_min_observations,
+            min_age_sec=self.cfg.profile_min_age_sec,
+            period_sec=self.cfg.profile_period_sec,
+            max_hosts=self.cfg.profile_max_hosts,
+            host_filter=self.cfg.profile_host_filter, clock=clock)
         self.shell = InteractiveShellDetector(
             min_packets=self.cfg.shell_min_packets,
             min_duration_sec=self.cfg.shell_min_duration_sec,
@@ -182,6 +203,12 @@ class DetectionPipeline:
                 f = self.beacon.observe_connection(src, dst, dport, ts=now)
                 if f is not None:
                     tier2_hits.append(f)
+            # Per-host profile: who this host talks to, on which ports, when.
+            # Nothing consumes the novelty answer yet - the rules that will
+            # (first-contact-on-admin-port, ratio flip, slow-drip) are the next
+            # step. The store has to be fed from the packet path before any of
+            # them can exist, and feeding it emits no alerts.
+            self.profiles.observe_connection(src, dst, dport, ts=now)
             # Record who initiated, so the shell detector can tell a reverse
             # shell (server types) from a bind shell (client types).
             self.shell.open_flow(src, dst, sport, dport, ts=now)
@@ -206,6 +233,8 @@ class DetectionPipeline:
             f = self.shell.observe_data(src, dst, sport, dport, payload_len, ts=now)
             if f is not None:
                 tier2_hits.append(f)
+            # Volume and direction, per host and per (host, peer) pair.
+            self.profiles.observe_bytes(src, dst, payload_len, ts=now)
             # Per-check-in payload size, the beacon detector's second feature.
             # Only the client's bytes count, so this is gated on is_outbound —
             # the same orientation the beacon's (src, dst) key uses.
@@ -360,4 +389,5 @@ class DetectionPipeline:
         self.beacon.reset()
         self.shell.reset()
         self.tls.reset()
+        self.profiles.reset()
         self._next_id = 0

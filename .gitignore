@@ -67,6 +67,14 @@ assets.*.json
 baseline.json
 *.assets.json
 
+# Learned per-host profiles (detection/host_profile.py). Not declared config
+# but observed fact, and strictly worse to leak than assets.json: it is a
+# communication graph of who talks to whom, on which ports, at which hours,
+# and how much data moves — the map an attacker draws AFTER getting inside.
+host_profiles.json
+host_profiles.json.tmp
+*.profiles.json
+
 # Captured traffic (may contain credentials, session tokens, real payloads)
 *.pcapng
 *.cap

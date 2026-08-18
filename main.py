@@ -186,6 +186,27 @@ ARP_COOLDOWN            = 60     # seconds between repeat alerts per IP
 # not just that one changed) and enables rogue-device detection.
 ASSETS_PATH             = Path(os.environ.get("NIDS_ASSETS", "assets.json"))
 
+# Per-host behavioural profiles (detection/host_profile.py). Where assets.json
+# is what an operator DECLARES about the network, this is what the sensor has
+# OBSERVED about it: peers, ports, volume, direction, active hours. It is not a
+# detector - it is the memory the novelty rules will compare against.
+#
+# The file records who talks to whom on the monitored segment, so it is internal
+# topology and is gitignored for the same reason assets.json is.
+HOST_PROFILE_PATH       = Path(os.environ.get("NIDS_PROFILES", "host_profiles.json"))
+# Warm-up gates. Both must pass before the store will call anything "new" with
+# confidence; until then it answers, but marks the answer degraded.
+HOST_PROFILE_MIN_OBS    = int(os.environ.get("NIDS_PROFILE_MIN_OBS", "20"))
+HOST_PROFILE_MIN_AGE    = float(os.environ.get("NIDS_PROFILE_MIN_AGE", "900"))
+# Accounting period for volume and direction ratio. One day, so a slow drip is
+# measured against the day's total rather than a 300-second window it never fills.
+HOST_PROFILE_PERIOD     = float(os.environ.get("NIDS_PROFILE_PERIOD", "86400"))
+HOST_PROFILE_MAX_HOSTS  = int(os.environ.get("NIDS_PROFILE_MAX_HOSTS", "4096"))
+# How often the learned profiles are flushed to disk. A baseline that dies with
+# the process is not a baseline: every restart would put every host back into
+# warm-up and blind the novelty rules for the length of it.
+HOST_PROFILE_SAVE_SEC   = float(os.environ.get("NIDS_PROFILE_SAVE_SEC", "300"))
+
 # Distributed scan: many sources each probing one destination (each staying
 # under the per-source port-scan threshold) — a botnet / coordinated sweep.
 DISTRIBUTED_WINDOW      = 20     # seconds
@@ -554,6 +575,14 @@ PIPELINE = DetectionPipeline(
         alert_capacity=MAX_ALERTS_STORED,
         dedup_window_sec=ALERT_DEDUP_WINDOW_SEC,
         authorized_scanners=set(AUTHORIZED_SCANNERS),
+        profile_min_observations=HOST_PROFILE_MIN_OBS,
+        profile_min_age_sec=HOST_PROFILE_MIN_AGE,
+        profile_period_sec=HOST_PROFILE_PERIOD,
+        profile_max_hosts=HOST_PROFILE_MAX_HOSTS,
+        # Profile the network being defended, not every address on the Internet
+        # that ever sent a packet at it. Wrapped in a lambda because is_internal
+        # is defined further down the file than this construction.
+        profile_host_filter=lambda ip: is_internal(ip),
     )
 )
 
@@ -712,6 +741,69 @@ def load_asset_inventory():
               "callback on an allowed port like 443 will only be caught by "
               "BEHAVIOR_INTERACTIVE_SHELL once someone types into it. "
               "Generate a starter inventory with baseline_assets.py.")
+
+
+# ─────────────────────────────────────────────
+#  HOST PROFILE PERSISTENCE
+# ─────────────────────────────────────────────
+_profile_save_lock = threading.Lock()
+# Its own stop event, deliberately NOT sniffer_stop_event: /control/stop pauses
+# capture but must not throw away the profiles learned so far, and the saver has
+# to keep running so the last of them reaches disk.
+_profile_saver_stop = threading.Event()
+
+
+def load_host_profiles() -> int:
+    """Restore learned per-host profiles from disk. Returns profiles loaded.
+
+    Optional and non-fatal in every failure mode. A missing file is the normal
+    first-run case; a corrupt one costs the warm-up period, not the sensor.
+    """
+    if not HOST_PROFILE_PATH.exists():
+        print(f"[PROFILES] No profile store at {HOST_PROFILE_PATH}. Every host "
+              f"starts in warm-up ({HOST_PROFILE_MIN_OBS} connections and "
+              f"{HOST_PROFILE_MIN_AGE:.0f}s before novelty answers are trusted).")
+        return 0
+    try:
+        with open(HOST_PROFILE_PATH, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError) as e:
+        print(f"[PROFILES][WARN] Could not read {HOST_PROFILE_PATH}: {e}. "
+              f"Starting with empty profiles.")
+        return 0
+    loaded = PIPELINE.profiles.load(data)
+    stats = PIPELINE.profiles.stats()
+    print(f"[PROFILES] Restored {loaded} host profile(s) from "
+          f"{HOST_PROFILE_PATH} - {stats['established']} established, "
+          f"{stats['peers']} peer relationships.")
+    return loaded
+
+
+def save_host_profiles() -> bool:
+    """Flush profiles to disk. Written to a temp file and renamed, so a crash
+    mid-write leaves the previous baseline intact rather than a truncated one."""
+    tmp = HOST_PROFILE_PATH.with_suffix(HOST_PROFILE_PATH.suffix + ".tmp")
+    try:
+        with _profile_save_lock:
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump(PIPELINE.profiles.to_dict(), fh)
+            os.replace(tmp, HOST_PROFILE_PATH)
+        return True
+    except (OSError, TypeError, ValueError) as e:
+        print(f"[PROFILES][WARN] Could not save profiles: {e}")
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        return False
+
+
+def _profile_saver_worker():
+    """Periodic flush. Daemon thread, so it never holds up shutdown; the
+    shutdown handler takes the final snapshot."""
+    while not _profile_saver_stop.wait(HOST_PROFILE_SAVE_SEC):
+        save_host_profiles()
+
 
 # ── Kill-chain / intrusion state (per host = suspected attacker or victim) ──
 # host → {"stages": {stage: {"first": ts, "last": ts, "count": n, "detail": str}},
@@ -2095,6 +2187,61 @@ def rules_coverage(session: dict = Depends(require_auth)):
     return coverage_report()
 
 
+@app.get("/hosts/profiles", tags=["System"])
+def host_profiles(
+    limit: int = Query(100, ge=1, le=1000),
+    session: dict = Depends(require_permission("view_alerts")),
+):
+    """What the sensor has learned about each host on the monitored segment.
+
+    This is observed behaviour, not declared inventory (that is assets.json).
+    It raises no alerts by itself - it is the memory the novelty rules compare
+    against, exposed here so an operator can see what the baseline actually
+    contains before trusting a rule built on it.
+
+    `state` is the honest part. A host in `learning` has not been watched long
+    enough for "this peer is new" to mean anything beyond "the sensor started
+    recently", and every answer derived from it is marked degraded.
+    """
+    stats = PIPELINE.profiles.stats()
+    return {
+        "hosts": PIPELINE.profiles.summary(limit=limit),
+        "stats": stats,
+        "warm_up": {
+            "min_observations": HOST_PROFILE_MIN_OBS,
+            "min_age_seconds":  HOST_PROFILE_MIN_AGE,
+            "rule": ("both gates must pass: a chatty host clears the count in "
+                     "a minute having seen one burst, and a quiet host ages "
+                     "into the window having learned almost nothing"),
+        },
+        "accounting_period_seconds": HOST_PROFILE_PERIOD,
+        "scope": ("internal addresses only (RFC1918 / configured prefixes); "
+                  "external peers are recorded as peers, not profiled"),
+        "persistence": {"path": str(HOST_PROFILE_PATH),
+                        "save_interval_seconds": HOST_PROFILE_SAVE_SEC},
+    }
+
+
+@app.get("/hosts/profiles/{ip}", tags=["System"])
+def host_profile_detail(
+    ip: str,
+    session: dict = Depends(require_permission("view_alerts")),
+):
+    """One host's learned profile: peers, ports, volume, active-hour histogram.
+
+    `evicted` is not incidental. Once peers have been dropped under the LRU cap
+    the store can no longer assert "first contact ever" for this host, and it
+    says so rather than quietly guessing.
+    """
+    snap = PIPELINE.profiles.snapshot(ip)
+    if snap is None:
+        raise HTTPException(status_code=404,
+                            detail=f"No profile for {ip}. Either it is outside "
+                                   f"the monitored prefixes or it has not been "
+                                   f"seen since the last restart.")
+    return snap
+
+
 @app.delete("/alerts", tags=["Alerts"])
 def clear_alerts(session: dict = Depends(require_permission("delete_alerts"))):
     """Admin only. Clears the in-memory cache AND the durable store."""
@@ -2245,8 +2392,21 @@ def on_startup():
         print("[NIDS][WARN] Using the PUBLIC default sensor key. Set NIDS_SENSOR_KEY "
               "(and match it in the sensors) before any real deployment.")
 
+    load_host_profiles()
+    threading.Thread(target=_profile_saver_worker, daemon=True,
+                     name="profile-saver").start()
+
     print("[NIDS] main.py ready. POST /control/start to begin capture.")
     print("[NIDS] ML alerts expected from live_ids_v2.py via POST /alert")
+
+
+@app.on_event("shutdown")
+def on_shutdown():
+    """Take a final snapshot of what the sensor learned this run."""
+    _profile_saver_stop.set()
+    if save_host_profiles():
+        print(f"[PROFILES] Saved {PIPELINE.profiles.stats()['hosts']} host "
+              f"profile(s) to {HOST_PROFILE_PATH}.")
 
 
 # ─────────────────────────────────────────────
