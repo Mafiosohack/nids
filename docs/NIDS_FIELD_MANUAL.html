@@ -1,0 +1,1126 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NIDS Field Manual</title>
+<style>
+/* ── tokens: light is the base set ─────────────────────────────────── */
+:root{
+  --ground:#F4F7F6;
+  --surface:#FFFFFF;
+  --surface-2:#EDF2F1;
+  --ink:#0F1A19;
+  --ink-mid:#3D4B48;
+  --ink-dim:#657471;
+  --line:#D9E2E0;
+  --line-soft:#E7EDEC;
+  --accent:#0B6E6C;
+  --accent-ink:#08514F;
+  --accent-wash:#E2F0EF;
+  --crit:#A81F17;
+  --crit-wash:#F8E7E5;
+  --high:#8A5410;
+  --high-wash:#FAEEDD;
+  --med:#63600F;
+  --med-wash:#F4F2DC;
+  --ok:#1F6B45;
+  --shadow:0 1px 2px rgba(15,26,25,.05),0 8px 24px -12px rgba(15,26,25,.18);
+  --font-display:ui-sans-serif,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --font-body:ui-serif,Georgia,"Iowan Old Style","Times New Roman",serif;
+  --font-mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --ground:#0D1315;
+    --surface:#141D1F;
+    --surface-2:#1A2426;
+    --ink:#E0E9E7;
+    --ink-mid:#B3C2BF;
+    --ink-dim:#879895;
+    --line:#263235;
+    --line-soft:#1E282A;
+    --accent:#3FB8B2;
+    --accent-ink:#66D0CA;
+    --accent-wash:#122C2C;
+    --crit:#FF7C6E;
+    --crit-wash:#2E1815;
+    --high:#E3A054;
+    --high-wash:#2B2013;
+    --med:#C9BE5C;
+    --med-wash:#262311;
+    --ok:#5FC38C;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -12px rgba(0,0,0,.6);
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#0D1315;
+  --surface:#141D1F;
+  --surface-2:#1A2426;
+  --ink:#E0E9E7;
+  --ink-mid:#B3C2BF;
+  --ink-dim:#879895;
+  --line:#263235;
+  --line-soft:#1E282A;
+  --accent:#3FB8B2;
+  --accent-ink:#66D0CA;
+  --accent-wash:#122C2C;
+  --crit:#FF7C6E;
+  --crit-wash:#2E1815;
+  --high:#E3A054;
+  --high-wash:#2B2013;
+  --med:#C9BE5C;
+  --med-wash:#262311;
+  --ok:#5FC38C;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -12px rgba(0,0,0,.6);
+}
+
+*{box-sizing:border-box}
+body{
+  background:var(--ground);
+  color:var(--ink);
+  font-family:var(--font-body);
+  font-size:16.5px;
+  line-height:1.65;
+  margin:0;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ── shell ─────────────────────────────────────────────────────────── */
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 120px}
+.layout{display:grid;grid-template-columns:216px minmax(0,1fr);gap:56px;align-items:start}
+@media (max-width:900px){.layout{grid-template-columns:1fr;gap:0}}
+
+/* ── masthead ──────────────────────────────────────────────────────── */
+header.mast{padding:72px 0 40px;border-bottom:1px solid var(--line)}
+.eyebrow{
+  font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--accent);margin:0 0 18px;font-weight:600;
+}
+h1{
+  font-family:var(--font-display);font-size:clamp(34px,5.2vw,56px);line-height:1.04;
+  letter-spacing:-.025em;font-weight:700;margin:0 0 20px;text-wrap:balance;max-width:16ch;
+}
+.standfirst{font-size:19px;line-height:1.6;color:var(--ink-mid);max-width:62ch;margin:0}
+.mast-meta{
+  display:flex;flex-wrap:wrap;gap:10px 28px;margin-top:32px;
+  font-family:var(--font-mono);font-size:12px;color:var(--ink-dim);
+}
+.mast-meta b{color:var(--ink);font-weight:600}
+
+/* ── toc ───────────────────────────────────────────────────────────── */
+nav.toc{position:sticky;top:24px;padding-top:56px}
+@media (max-width:900px){
+  nav.toc{position:static;padding:32px 0 8px;border-bottom:1px solid var(--line)}
+}
+.toc-head{
+  font-family:var(--font-mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--ink-dim);margin:0 0 14px;font-weight:600;
+}
+nav.toc ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:1px}
+nav.toc a{
+  display:grid;grid-template-columns:26px 1fr;gap:6px;align-items:baseline;
+  font-family:var(--font-display);font-size:13px;line-height:1.35;
+  color:var(--ink-mid);text-decoration:none;padding:5px 8px 5px 0;border-radius:4px;
+}
+nav.toc a:hover{color:var(--accent);background:var(--accent-wash)}
+nav.toc a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+nav.toc .n{font-family:var(--font-mono);font-size:11px;color:var(--ink-dim);font-variant-numeric:tabular-nums}
+
+/* ── sections ──────────────────────────────────────────────────────── */
+main{padding-top:56px;min-width:0}
+section{margin:0 0 68px;scroll-margin-top:24px}
+h2{
+  font-family:var(--font-display);font-size:27px;letter-spacing:-.018em;font-weight:700;
+  line-height:1.2;margin:0 0 8px;text-wrap:balance;
+  display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:baseline;
+}
+h2 .n{
+  font-family:var(--font-mono);font-size:14px;font-weight:600;color:var(--accent);
+  font-variant-numeric:tabular-nums;
+}
+h3{
+  font-family:var(--font-display);font-size:18px;font-weight:660;letter-spacing:-.01em;
+  margin:38px 0 10px;color:var(--ink);text-wrap:balance;
+}
+h4{
+  font-family:var(--font-mono);font-size:11.5px;font-weight:600;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--ink-dim);margin:26px 0 8px;
+}
+p{margin:0 0 15px;max-width:70ch}
+.lede{color:var(--ink-mid);font-size:17px;margin-bottom:22px;max-width:70ch}
+ul,ol.body{margin:0 0 16px;padding-left:22px;max-width:70ch}
+li{margin:0 0 7px}
+strong{font-weight:660}
+a{color:var(--accent);text-decoration-thickness:1px;text-underline-offset:2px}
+code{
+  font-family:var(--font-mono);font-size:.85em;background:var(--surface-2);
+  padding:1px 5px;border-radius:3px;color:var(--ink);border:1px solid var(--line-soft);
+}
+hr{border:0;border-top:1px solid var(--line);margin:44px 0}
+
+/* ── rule cards ────────────────────────────────────────────────────── */
+.rules{display:flex;flex-direction:column;gap:12px;margin:18px 0 24px}
+.rule{
+  background:var(--surface);border:1px solid var(--line);border-radius:7px;
+  padding:15px 17px;box-shadow:var(--shadow);
+}
+.rule-top{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:9px}
+.rid{
+  font-family:var(--font-mono);font-size:12.5px;font-weight:600;color:var(--ink);
+  letter-spacing:-.01em;
+}
+.chip{
+  font-family:var(--font-mono);font-size:9.5px;font-weight:700;letter-spacing:.09em;
+  text-transform:uppercase;padding:2.5px 7px;border-radius:3px;white-space:nowrap;
+}
+.chip.crit{background:var(--crit-wash);color:var(--crit)}
+.chip.high{background:var(--high-wash);color:var(--high)}
+.chip.med{background:var(--med-wash);color:var(--med)}
+.chip.tier{background:var(--accent-wash);color:var(--accent-ink)}
+.chip.gen{background:transparent;color:var(--ink-dim);border:1px solid var(--line)}
+.rule dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:5px 14px;font-size:14.5px}
+@media (max-width:620px){.rule dl{grid-template-columns:1fr;gap:2px}}
+.rule dt{
+  font-family:var(--font-mono);font-size:10px;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--ink-dim);font-weight:600;padding-top:4px;white-space:nowrap;
+}
+.rule dd{margin:0;color:var(--ink-mid);line-height:1.5}
+.rule dd.lim{color:var(--ink-dim)}
+
+/* ── callouts ──────────────────────────────────────────────────────── */
+.note{
+  border-left:3px solid var(--accent);background:var(--accent-wash);
+  padding:14px 18px;border-radius:0 5px 5px 0;margin:20px 0;
+}
+.note.limit{border-left-color:var(--high);background:var(--high-wash)}
+.note.warn{border-left-color:var(--crit);background:var(--crit-wash)}
+.note p{margin:0 0 9px;max-width:66ch}
+.note p:last-child{margin:0}
+.note .tag{
+  font-family:var(--font-mono);font-size:10px;letter-spacing:.11em;text-transform:uppercase;
+  font-weight:700;display:block;margin-bottom:6px;color:var(--accent-ink);
+}
+.note.limit .tag{color:var(--high)}
+.note.warn .tag{color:var(--crit)}
+
+/* ── data ──────────────────────────────────────────────────────────── */
+.scroll{overflow-x:auto;margin:18px 0 24px;border:1px solid var(--line);border-radius:7px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:14px;font-family:var(--font-display)}
+th{
+  text-align:left;font-family:var(--font-mono);font-size:10px;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--ink-dim);font-weight:600;
+  padding:11px 14px;border-bottom:1px solid var(--line);white-space:nowrap;background:var(--surface-2);
+}
+td{padding:10px 14px;border-bottom:1px solid var(--line-soft);color:var(--ink-mid);vertical-align:top}
+tr:last-child td{border-bottom:0}
+td.num{font-family:var(--font-mono);font-variant-numeric:tabular-nums;color:var(--ink);white-space:nowrap}
+td code{background:transparent;border:0;padding:0;font-size:12.5px}
+
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:10px;margin:20px 0 26px}
+.stat{
+  background:var(--surface);border:1px solid var(--line);border-radius:7px;padding:13px 15px;
+}
+.stat .v{
+  font-family:var(--font-mono);font-size:24px;font-weight:600;line-height:1.1;color:var(--ink);
+  font-variant-numeric:tabular-nums;letter-spacing:-.02em;display:block;
+}
+.stat .k{
+  font-family:var(--font-mono);font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--ink-dim);margin-top:6px;display:block;line-height:1.35;
+}
+.stat.good .v{color:var(--ok)}
+
+pre{
+  background:var(--surface);border:1px solid var(--line);border-radius:7px;
+  padding:15px 17px;overflow-x:auto;margin:18px 0 24px;
+  font-family:var(--font-mono);font-size:12.5px;line-height:1.6;color:var(--ink-mid);
+}
+pre b{color:var(--accent);font-weight:600}
+pre i{color:var(--ink-dim);font-style:normal}
+
+/* ── chain strip ───────────────────────────────────────────────────── */
+.chain{display:flex;flex-wrap:wrap;gap:6px;margin:18px 0 24px}
+.chain span{
+  font-family:var(--font-mono);font-size:11px;padding:6px 10px;border-radius:4px;
+  background:var(--surface);border:1px solid var(--line);color:var(--ink-mid);
+}
+.chain span b{color:var(--accent);font-weight:600;margin-right:6px;font-variant-numeric:tabular-nums}
+
+/* ── q&a ───────────────────────────────────────────────────────────── */
+.qa{display:flex;flex-direction:column;gap:2px;margin:20px 0}
+details{
+  background:var(--surface);border:1px solid var(--line);border-radius:7px;padding:0;
+  overflow:hidden;
+}
+details+details{margin-top:8px}
+summary{
+  cursor:pointer;padding:13px 17px;font-family:var(--font-display);font-size:15.5px;
+  font-weight:600;color:var(--ink);list-style:none;display:flex;gap:11px;align-items:flex-start;
+}
+summary::-webkit-details-marker{display:none}
+summary::before{
+  content:"?";font-family:var(--font-mono);font-size:12px;font-weight:700;color:var(--accent);
+  flex:0 0 auto;padding-top:2px;
+}
+summary:hover{background:var(--surface-2)}
+summary:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+details[open] summary{border-bottom:1px solid var(--line-soft)}
+.answer{padding:14px 17px 4px}
+.answer p{font-size:15.5px;max-width:66ch}
+
+footer{
+  border-top:1px solid var(--line);margin-top:40px;padding-top:26px;
+  font-family:var(--font-mono);font-size:11.5px;color:var(--ink-dim);line-height:1.7;
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<div class="wrap">
+
+<header class="mast">
+  <p class="eyebrow">Complete system reference</p>
+  <h1>NIDS Field Manual</h1>
+  <p class="standfirst">Everything this intrusion detection system is made of, every rule it runs and the exact feature each one keys on, the reasoning behind each design decision, and — deliberately — the precise boundary of what a network sensor can and cannot prove.</p>
+  <div class="mast-meta">
+    <span><b>38</b> rules</span>
+    <span><b>163</b> unit tests</span>
+    <span><b>36/36</b> efficacy cases</span>
+    <span><b>4</b> sensors</span>
+    <span><b>9</b> kill-chain stages</span>
+    <span>Python 3.10+ · FastAPI · scapy · scikit-learn</span>
+  </div>
+</header>
+
+<div class="layout">
+
+<nav class="toc">
+  <p class="toc-head">Contents</p>
+  <ol>
+    <li><a href="#s1"><span class="n">01</span><span>What it is</span></a></li>
+    <li><a href="#s2"><span class="n">02</span><span>Architecture</span></a></li>
+    <li><a href="#s3"><span class="n">03</span><span>The packet path</span></a></li>
+    <li><a href="#s4"><span class="n">04</span><span>The rule catalogue</span></a></li>
+    <li><a href="#s5"><span class="n">05</span><span>Fragment reassembly</span></a></li>
+    <li><a href="#s6"><span class="n">06</span><span>Correlation engine</span></a></li>
+    <li><a href="#s7"><span class="n">07</span><span>Retention &amp; dedup</span></a></li>
+    <li><a href="#s8"><span class="n">08</span><span>Baselines</span></a></li>
+    <li><a href="#s9"><span class="n">09</span><span>The other sensors</span></a></li>
+    <li><a href="#s10"><span class="n">10</span><span>Machine learning</span></a></li>
+    <li><a href="#s11"><span class="n">11</span><span>API &amp; auth</span></a></li>
+    <li><a href="#s12"><span class="n">12</span><span>How it's tested</span></a></li>
+    <li><a href="#s13"><span class="n">13</span><span>Coverage &amp; limits</span></a></li>
+    <li><a href="#s14"><span class="n">14</span><span>Known gaps</span></a></li>
+    <li><a href="#s15"><span class="n">15</span><span>Interview questions</span></a></li>
+  </ol>
+</nav>
+
+<main>
+
+<!-- ══ 1 ══ -->
+<section id="s1">
+  <h2><span class="n">01</span><span>What it is, in one paragraph</span></h2>
+  <p class="lede">A network intrusion detection sensor that captures live traffic, runs 38 catalogued detection rules against it, groups the resulting alerts into kill-chain incidents by attacker, and serves the whole thing through an authenticated REST API and a real-time dashboard. Three companion sensors — a host auth-log reader, a cloud VPC-flow-log reader, and a flow-based machine-learning classifier — post into the same alert pipeline, so evidence from four different telemetry sources lands on one timeline.</p>
+
+  <p>The thing that distinguishes it from a student NIDS project is not the rule count. It is that <strong>every claim it makes is falsifiable</strong>. Each alert names a stable rule ID and carries the measured feature that triggered it, so the verdict can be checked rather than trusted. Each rule declares which detail keys it must produce, and an automated harness fails any alert that omits them. And the documentation states, up front, the categories of attack this sensor structurally cannot see.</p>
+
+  <div class="note">
+    <span class="tag">The framing that matters</span>
+    <p>Most of the interesting engineering here is in the <em>discriminators</em> — the specific measurement that separates two things that look alike on the wire. A SYN scan and a connect scan both spray SYNs; the discriminator is the client's third packet. A brute-force tool and a patient human both retry logins; the discriminator is measured attempts per second. A reverse shell and a legitimate SSH session are the same kind of session; the discriminator is an out-of-band confirmation from the host sensor. Being able to name the discriminator for each rule is the whole skill.</p>
+  </div>
+</section>
+
+<!-- ══ 2 ══ -->
+<section id="s2">
+  <h2><span class="n">02</span><span>Architecture: what it is made of</span></h2>
+
+  <p>The central structural decision: <strong>detection logic is a pure library, and the server is a wiring layer.</strong> Everything in <code>detection/</code> imports no scapy, no FastAPI, no sockets. Every detector takes an injected clock instead of calling <code>time.time()</code>. That makes the whole detection surface testable in milliseconds with no network, no privileges and no sleeping.</p>
+
+  <p>The payoff is that <code>detection/pipeline.py</code> composes the detectors once, and <em>three</em> callers drive that same object: the live sensor, the 163 unit tests, and the efficacy harness. There is no parallel test reimplementation that can drift from production.</p>
+
+  <h3>Module map</h3>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>File</th><th>Lines</th><th>Responsibility</th></tr></thead>
+      <tbody>
+        <tr><td><code>main.py</code></td><td class="num">2257</td><td>Wiring layer: scapy capture loop, FastAPI app, SQLite persistence, auth, and the detectors not yet migrated into the package</td></tr>
+        <tr><td><code>detection/rules.py</code></td><td class="num">568</td><td>The rule catalogue — 38 rule objects with ID, severity, tier, kill-chain stage, MITRE mapping, required discriminators</td></tr>
+        <tr><td><code>detection/pipeline.py</code></td><td class="num">363</td><td>Composition root: given a packet, which detectors run in what order, and what happens to their findings</td></tr>
+        <tr><td><code>detection/correlation.py</code></td><td class="num">380</td><td>Groups alerts into incidents by source IP with a forward-progression promotion rule</td></tr>
+        <tr><td><code>detection/exploit_tier2.py</code></td><td class="num">434</td><td>Post-exploitation behaviour: outbound anomaly, new listening port, C2 beaconing</td></tr>
+        <tr><td><code>detection/interactive_shell.py</code></td><td class="num">357</td><td>Detects someone typing at a shell purely from packet sizes and timing</td></tr>
+        <tr><td><code>detection/scan_rules.py</code></td><td class="num">325</td><td>Scan signatures, port-scan classification, brute-force rate split</td></tr>
+        <tr><td><code>detection/exploit_tier1.py</code></td><td class="num">292</td><td>Payload signatures for five specific exploits</td></tr>
+        <tr><td><code>detection/reassembly.py</code></td><td class="num">288</td><td>IPv4 fragment reassembly, pure-bytes core plus a scapy adapter</td></tr>
+        <tr><td><code>detection/tls_shape.py</code></td><td class="num">280</td><td>Flags sessions on TLS ports that never negotiated TLS</td></tr>
+        <tr><td><code>detection/retention.py</code></td><td class="num">266</td><td>Severity-weighted alert store with deduplication and an audit log</td></tr>
+        <tr><td><code>detection/findings.py</code></td><td class="num">87</td><td>The single <code>Finding</code> shape every detector returns</td></tr>
+        <tr><td><code>efficacy_harness.py</code></td><td class="num">695</td><td>36 scored attack/benign scenarios reporting TP/FP/FN, exits non-zero on regression</td></tr>
+        <tr><td><code>live_ids_v2.py</code></td><td class="num">725</td><td>ML sensor: builds flow feature vectors, runs inference, POSTs alerts</td></tr>
+        <tr><td><code>cloud_log_sensor.py</code></td><td class="num">490</td><td>AWS VPC Flow Log reader</td></tr>
+        <tr><td><code>host_log_sensor.py</code></td><td class="num">412</td><td>Linux auth-log reader — the only source that <em>knows</em> rather than infers</td></tr>
+        <tr><td><code>baseline_assets.py</code></td><td class="num">258</td><td>Generates a starter <code>assets.json</code> baseline from a pcap or live capture</td></tr>
+        <tr><td><code>nids_dashboard.html</code></td><td class="num">1418</td><td>Single-file dashboard, no build step, no external assets</td></tr>
+        <tr><td><code>tests/</code></td><td class="num">2124</td><td>163 tests across 9 modules</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Process model</h3>
+  <p>Four processes, loosely coupled by one HTTP endpoint:</p>
+  <pre>  <b>main.py</b>            capture thread + FastAPI (uvicorn) + SQLite
+       ▲                POST /alert  ·  X-Sensor-Key pre-shared key
+       │
+       ├── <b>live_ids_v2.py</b>       flow features → ML model → alert
+       ├── <b>host_log_sensor.py</b>   /var/log/auth.log → alert
+       └── <b>cloud_log_sensor.py</b>  VPC flow logs → alert</pre>
+
+  <p>The sensors are deliberately separate processes rather than threads. Each needs different privileges (raw capture vs log file read), each can be deployed on a different host, and a crash in one does not take the dashboard down. They authenticate with a pre-shared key on a header that is <em>not</em> accepted for any read endpoint — a compromised sensor key lets you inject false alerts, never read real ones.</p>
+
+  <h3>Single alert path</h3>
+  <p>Every alert in the system, from every source, takes exactly one route:</p>
+  <pre><b>Finding</b> ─→ <b>pipeline.publish()</b> ─→ dedup/retention ─→ correlation ─→ <b>_on_published_alert()</b>
+                                                              │
+                                          ┌───────────────────┼────────────────────┐
+                                          ▼                   ▼                    ▼
+                                    SQLite insert      console log         kill-chain state</pre>
+  <div class="note">
+    <span class="tag">Why one path</span>
+    <p>The previous design had the correlation engine calling back into alert generation, which re-entered correlation. That re-entrancy meant an incident could ingest the very alert announcing itself, inflating its own event count and listing itself among its member rules. Funnelling everything through one publish function, with the correlator explicitly forbidden from ingesting correlation-tier output, removes the whole class of bug.</p>
+  </div>
+</section>
+
+<!-- ══ 3 ══ -->
+<section id="s3">
+  <h2><span class="n">03</span><span>The packet path, step by step</span></h2>
+  <p class="lede">This is the sequence to be able to recite. A packet arrives at <code>process_packet()</code> and passes through these stages in this order.</p>
+
+  <h4>Step 0 — Layer 2</h4>
+  <p>ARP has no IP layer, so it is handled before the IP guard. <code>MITM_ARP_SPOOF</code> and <code>ASSET_ROGUE_HOST</code> both fire here.</p>
+
+  <h4>Step 1 — Fragment reassembly</h4>
+  <p>If the packet is a fragment it goes into the reassembler and the function returns early until the datagram is whole. See §5 for why this must happen before anything else.</p>
+
+  <h4>Step 2 — Protocol-agnostic volume checks</h4>
+  <p>Run on every IP packet regardless of transport: DDoS packet rate, cloud metadata (IMDS) access, bulk exfiltration bytes, and internal data staging.</p>
+
+  <h4>Step 3 — TCP into the pipeline</h4>
+  <p><code>PIPELINE.on_tcp_packet()</code> receives source, destination, both ports, flags, up to 4096 bytes of payload, the <em>true</em> payload length, the sequence number, the fragment count, and an outbound flag. Inside, in strict order:</p>
+  <ol class="body">
+    <li><strong>Flag signature</strong> — a single-packet test on the TCP flags byte, producing <code>TCP_NULL_SCAN</code>, <code>TCP_FIN_SCAN</code>, <code>TCP_XMAS_SCAN</code> or <code>TCP_SYNFIN_SCAN</code>.</li>
+    <li><strong>On a bare SYN</strong> — port-scan accumulation, brute-force accumulation, the vsftpd second-stage check, outbound-anomaly check, beacon check-in, and flow open for both the shell and TLS detectors.</li>
+    <li><strong>On SYN-ACK</strong> — the handshake table advances (needed for the <code>-sS</code> vs <code>-sT</code> discriminator) and the listening-port monitor records proof of an accepting socket.</li>
+    <li><strong>On RST or bare ACK</strong> — completes the handshake discriminator: RST after SYN-ACK means half-open, ACK means a full connect.</li>
+    <li><strong>On any data-bearing packet</strong> — the shell-shape detector ingests the packet <em>length</em>, the beacon detector accrues client bytes, and the TLS detector judges the first client segment.</li>
+    <li><strong>Payload signatures</strong> — the five Tier 1 exploit checks.</li>
+    <li><strong>Publish</strong> — Tier 2 findings first, then Tier 1, then everything else.</li>
+  </ol>
+
+  <div class="note">
+    <span class="tag">Publish order is a decision, not an accident</span>
+    <p>Tier 2 findings publish <em>before</em> Tier 1 findings from the same packet, and Tier 2 sorts above Tier 1 in the coverage report. A payload signature tells you which of five known exploits was delivered; a behavioural finding tells you something got executed regardless of how. The generalising evidence should lead the analyst's read.</p>
+  </div>
+
+  <h4>Step 4 — Post-pipeline TCP work</h4>
+  <p>SYN flood counting, distributed-scan aggregation, low-and-slow scan accumulation, per-source EWMA baseline update, handshake table maintenance, and byte tracking against recently brute-forced "hot" targets.</p>
+
+  <h4>Step 5 — UDP</h4>
+  <p>UDP amplification counting, plus DNS query inspection for tunnelling.</p>
+
+  <div class="note limit">
+    <span class="tag">Known asymmetry</span>
+    <p>All Tier 1 and Tier 2 inspection is TCP-only. UDP gets amplification and DNS-tunnel checks; ICMP is only counted toward the DDoS tracker. There is no exploit signature or post-exploitation behaviour rule on either. This is stated in the coverage docs rather than papered over.</p>
+  </div>
+</section>
+
+<!-- ══ 4 ══ -->
+<section id="s4">
+  <h2><span class="n">04</span><span>The rule catalogue</span></h2>
+  <p class="lede">38 rules, each a frozen object carrying a stable ID, severity, tier, kill-chain stage, MITRE ATT&amp;CK mapping, a required set of discriminator keys, and a flag stating whether it generalises beyond the exact case it was written for.</p>
+
+  <div class="stats">
+    <div class="stat"><span class="v">38</span><span class="k">rules total</span></div>
+    <div class="stat"><span class="v">20</span><span class="k">generalise</span></div>
+    <div class="stat"><span class="v">6</span><span class="k">signature</span></div>
+    <div class="stat"><span class="v">17</span><span class="k">behavioural</span></div>
+    <div class="stat"><span class="v">6+6</span><span class="k">tier 1 + tier 2</span></div>
+    <div class="stat"><span class="v">9</span><span class="k">MITRE tactics</span></div>
+  </div>
+
+  <h3>4.0 — Two mechanisms that make the catalogue load-bearing</h3>
+  <p><strong>Discriminators.</strong> Each rule declares the detail keys an alert for it <em>must</em> carry. <code>validate_alert_details()</code> enforces it, and the efficacy harness fails any alert missing them — even when detection itself succeeded. This is the mechanism that stops a specific rule from silently decaying back into a generic bucket label. It is why the alert says "BRUTEFORCE_LOW_RATE at 0.031 attempts/sec on tcp/22" instead of "Brute Force Attempt".</p>
+  <p><strong><code>generalizes</code>.</strong> A boolean stating whether the rule catches a class of behaviour or only the enumerated case. Tier 1 signatures are <code>False</code>; Tier 2 behaviours are <code>True</code>. The coverage report renders the two separately so nobody reads five exploit signatures as "exploit coverage".</p>
+  <p><strong><code>src_semantics</code>.</strong> Whose IP the alert's source field represents — <code>actor</code> (correlate on it), <code>target</code> (the victim), or <code>unknown</code> (spoofable, never attribute). ARP spoofing is <code>unknown</code> because the source is forged; the correlation engine drops such events rather than grouping them under whoever the packet claimed to be.</p>
+
+  <h3>4.1 — Reconnaissance</h3>
+  <div class="rules">
+    <div class="rule">
+      <div class="rule-top"><span class="rid">TCP_NULL_SCAN · TCP_FIN_SCAN · TCP_XMAS_SCAN · TCP_SYNFIN_SCAN</span><span class="chip med">medium</span><span class="chip tier">signature</span></div>
+      <dl>
+        <dt>Fires when</dt><dd>The TCP flags byte matches an exact illegal-for-a-real-connection combination. XMAS is tested as a mask (FIN|PSH|URG present, SYN/RST/ACK absent) because <code>-sX</code> implementations vary.</dd>
+        <dt>Discriminator</dt><dd>The decoded flag string and hex value go on the alert (<code>"FIN,PSH,URG"</code>, <code>0x29</code>), so the analyst sees which variant it was.</dd>
+        <dt>Why split</dt><dd>These four previously collapsed into one "Stealth Scan" label. An analyst could not tell a FIN scan from a NULL scan, and neither could the correlation engine or any ATT&amp;CK mapping.</dd>
+        <dt>Limit</dt><dd class="lim">A bare SYN is deliberately <em>not</em> a signature — it is how every legitimate connection starts.</dd>
+      </dl>
+    </div>
+    <div class="rule">
+      <div class="rule-top"><span class="rid">TCP_SYN_SCAN</span> <span class="rid">vs</span> <span class="rid">TCP_CONNECT_SCAN</span><span class="chip high">high</span><span class="chip tier">behavioural</span><span class="chip gen">generalises</span></div>
+      <dl>
+        <dt>Fires when</dt><dd>6 distinct destination ports from one source within 5 seconds.</dd>
+        <dt>Discriminator</dt><dd><strong>The client's third packet.</strong> SYN → SYN-ACK → <strong>RST</strong> is half-open (<code>nmap -sS</code>). SYN → SYN-ACK → <strong>ACK</strong> means a real socket existed (<code>nmap -sT</code>). Port count alone cannot separate them, because both spray identical SYNs.</dd>
+        <dt>Auditable</dt><dd>Both counts ship on the alert as <code>handshakes_completed</code> and <code>half_open_resets</code>, so the classification can be checked rather than asserted.</dd>
+        <dt>Detail</dt><dd class="lim">The ports-per-second figure uses a 10 ms floor on the time span — dividing by a near-zero span once produced a nonsense "99469 ports/sec" on a live alert.</dd>
+      </dl>
+    </div>
+    <div class="rule">
+      <div class="rule-top"><span class="rid">SCAN_SLOW_RATE</span><span class="chip med">medium</span><span class="chip tier">behavioural</span></div>
+      <dl>
+        <dt>Fires when</dt><dd>12 distinct ports from one source over a 30-minute horizon, with per-port decay.</dd>
+        <dt>Purpose</dt><dd>Defeats the evasion of pacing a scan slower than the 5-second window.</dd>
+      </dl>
+    </div>
+    <div class="rule">
+      <div class="rule-top"><span class="rid">SCAN_DISTRIBUTED</span><span class="chip high">high</span><span class="chip tier">behavioural</span></div>
+      <dl>
+        <dt>Fires when</dt><dd>4+ distinct sources each hit 3+ ports on one destination within 20 seconds.</dd>
+        <dt>Purpose</dt><dd>Catches a coordinated sweep where every individual source stays under the single-host threshold.</dd>
+        <dt>Attribution</dt><dd class="lim">Source is <code>None</code> — there is no single actor, so it correlates against nothing by design.</dd>
+      </dl>
+    </div>
+    <div class="rule">
+      <div class="rule-top"><span class="rid">ANOMALY_TRAFFIC_BASELINE</span><span class="chip med">medium</span><span class="chip tier">behavioural</span></div>
+      <dl>
+        <dt>Fires when</dt><dd>A source's connection count in a 10-second bucket exceeds its own learned EWMA mean by 4σ.</dd>
+        <dt>Maths</dt><dd>Exponentially weighted mean and variance, α = 0.3, minimum 6 learned buckets, and a noise floor of 20 connections so trivially small bursts are ignored.</dd>
+        <dt>Why</dt><dd>An adaptive alternative to fixed thresholds — it measures a host against itself, so a busy server and a quiet workstation get different bars.</dd>
+      </dl>
+    </div>
+  </div>
+
+  <h3>4.2 — Credential access</h3>
+  <div class="rules">
+    <div class="rule">
+      <div class="rule-top"><span class="rid">BRUTEFORCE_STANDARD_RATE</span> <span class="rid">·</span> <span class="rid">BRUTEFORCE_LOW_RATE</span><span class="chip high">high</span><span class="chip tier">behavioural</span><span class="chip gen">generalises</span></div>
+      <dl>
+        <dt>Fires when</dt><dd>8+ connection attempts to one (source, target, auth port) inside a 900-second window.</dd>
+        <dt>Discriminator</dt><dd><strong>Measured attempts per second</strong>, computed as (n−1) intervals over the observed span. Above 0.2/s is standard rate; below is low-and-slow. The measured figure goes on the alert, so the classification is checkable.</dd>
+        <dt>Why one window</dt><dd>Both rules share a single long window and classify from the observed rate, rather than having two windows where the classification is an artifact of which one happened to trip.</dd>
+        <dt>Honest caveat</dt><dd class="lim">Shipped on every alert: this counts <em>connection attempts</em>. TCP completes for failed logins too, so success is not visible on the wire. Confirmation requires <code>host_log_sensor.py</code>.</dd>
+        <dt>Real regression</dt><dd class="lim">tcp/8080 was removed from the watched port set. It is overwhelmingly an application/API port, so ordinary polling was producing HIGH brute-force alerts. HTTP auth cannot be judged from connection counts anyway — that needs response codes this sensor does not parse.</dd>
+      </dl>
+    </div>
+  </div>
+
+  <h3>4.3 — Tier 1: exploit payload signatures</h3>
+  <p>Five specific exploits, matched on their exact wire format. Deliberately narrow — change the trigger string and the match is gone. These exist because they are cheap, precise, and produce an unambiguous name for what happened.</p>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Rule</th><th>Exploit</th><th>Trigger matched</th></tr></thead>
+      <tbody>
+        <tr><td><code>EXPLOIT_VSFTPD_BACKDOOR</code></td><td>vsftpd 2.3.4 (OSVDB-73573)</td><td>FTP <code>USER</code> line whose username contains <code>:)</code></td></tr>
+        <tr><td><code>EXPLOIT_VSFTPD_BACKDOOR_SHELL</code></td><td>same — confirmation stage</td><td>A SYN to tcp/6200 within 180 s of the trigger, from the same pair</td></tr>
+        <tr><td><code>EXPLOIT_SAMBA_USERMAP</code></td><td>CVE-2007-2447</td><td>Shell metacharacter in an SMB username <em>and</em> either the <code>/=</code> marker or a recognisable shell token</td></tr>
+        <tr><td><code>EXPLOIT_DISTCC_CMDEXEC</code></td><td>CVE-2004-2687</td><td>Shell strings inside a cleartext distcc <code>ARGV</code> slot</td></tr>
+        <tr><td><code>EXPLOIT_UNREALIRCD_BACKDOOR</code></td><td>CVE-2010-2075</td><td>The <code>AB;</code> command marker in IRC traffic</td></tr>
+        <tr><td><code>EXPLOIT_JAVA_RMI_DESERIALIZATION</code></td><td>Java RMI gadget chain</td><td>Stream magic <code>AC ED 00 05</code> within the first 64 bytes</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Two details worth being able to explain. The <strong>vsftpd rule is two-stage</strong>: the <code>:)</code> trigger alone means <em>attempted</em> and is HIGH; the follow-up connection to tcp/6200 means <em>succeeded</em> and is CRITICAL. And the <strong>Samba rule requires two conditions</strong>, not one — a username merely containing a semicolon does not fire, because that alone is not evidence of injection.</p>
+
+  <h3>4.4 — Tier 2: post-exploitation behaviour</h3>
+  <p>Ranked above Tier 1 everywhere. These detect what a successful exploit <em>causes</em>, so they hold regardless of which exploit produced it — including exploits that did not exist when the code was written.</p>
+
+  <div class="rules">
+    <div class="rule">
+      <div class="rule-top"><span class="rid">BEHAVIOR_UNEXPECTED_OUTBOUND</span><span class="chip crit">critical</span><span class="chip tier">tier 2</span><span class="chip gen">generalises</span></div>
+      <dl>
+        <dt>Fires when</dt><dd>A host with a known-good outbound baseline initiates a connection to a destination/port pair not in it.</dd>
+        <dt>Why it is clean</dt><dd>A server accepts connections; it does not make them. Its normal outbound count is near zero, which makes "it dialled out" an unusually unambiguous signal — no threshold tuning, no rate maths.</dd>
+        <dt>Two baseline sources</dt><dd>Configured from <code>assets.json</code> (trustworthy), or learned over a 300-second window. Learned findings are tagged <code>baseline_source: "learned"</code> so they read with that caveat — learn-on-first-sight bakes in whatever was happening at the time.</dd>
+        <dt>Strength</dt><dd>The only rule that catches a callback <em>before</em> a single command is typed.</dd>
+      </dl>
+    </div>
+
+    <div class="rule">
+      <div class="rule-top"><span class="rid">BEHAVIOR_NEW_LISTENING_PORT</span><span class="chip crit">critical</span><span class="chip tier">tier 2</span><span class="chip gen">generalises</span></div>
+      <dl>
+        <dt>Fires when</dt><dd>A host answers SYN-ACK on a port absent from its known-good snapshot.</dd>
+        <dt>Evidence quality</dt><dd>SYN-ACK is proof of an <em>accepting socket</em>, which a SYN alone is not.</dd>
+        <dt>Two-tier severity</dt><dd>A new port appearing within 300 s of exploit-stage traffic against that host is CRITICAL and reads as a bind shell. With no preceding exploit context it drops to MEDIUM and is described as inventory drift. The alert says which case it was.</dd>
+        <dt>Limit</dt><dd class="lim">Needs a baseline. A host with no snapshot produces nothing — silence beats a guess.</dd>
+      </dl>
+    </div>
+
+    <div class="rule">
+      <div class="rule-top"><span class="rid">BEHAVIOR_INTERACTIVE_SHELL</span><span class="chip crit">critical</span><span class="chip tier">tier 2</span><span class="chip gen">generalises</span></div>
+      <dl>
+        <dt>Fires when</dt><dd>A flow matches the shape of a human typing: ≥40 packets over ≥20 s, one side sending ≥60% keystroke-sized packets (≤64 bytes), ≥2× more output than input bytes, direction alternation above 0.15, and throughput under 2048 B/s.</dd>
+        <dt>The insight</dt><dd>An interactive shell has a shape no bulk protocol has — tiny packets one way, output bursts the other, turn-taking, long-lived, low-volume, human pacing. It never inspects payload <em>content</em>, only packet <em>lengths</em>, so encryption does not defeat it.</dd>
+        <dt>Direction-agnostic</dt><dd>Whichever side sends mostly-small packets is designated the "command side", so one rule covers both reverse shells (server types) and bind shells (client types).</dd>
+        <dt>The unavoidable FP</dt><dd class="lim">A legitimate SSH session <em>is</em> an interactive shell — same shape, same thing. No threshold separates them, so the rule does not try. It stays quiet only when vouched for: the host sensor reports a matching <code>SSH Login</code> for that pair, or the pair is allowlisted. With neither, it raises MEDIUM and says it could not confirm a login — a statement about evidence, not a verdict.</dd>
+        <dt>Real limit</dt><dd class="lim">Heavy packet padding blunts the small-packet signal. The 64-byte threshold catches raw shells and block-padded SSH keystrokes; a transport padding to 512 bytes will not match.</dd>
+      </dl>
+    </div>
+
+    <div class="rule">
+      <div class="rule-top"><span class="rid">BEHAVIOR_C2_BEACON</span><span class="chip high">high</span><span class="chip tier">tier 2</span><span class="chip gen">generalises</span></div>
+      <dl>
+        <dt>Fires when</dt><dd>6+ connections to one destination inside 900 s whose inter-arrival <strong>coefficient of variation</strong> (σ/μ) is ≤ 0.25, with no interval under 2 s.</dd>
+        <dt>The feature</dt><dd>Implants check in on a timer; human and application traffic is bursty and clumped, so its interval CV is high. The CV threshold <em>is</em> the detector — everything else is bookkeeping. The 2-second floor stops a page load fetching 20 assets from looking metronomic.</dd>
+        <dt>Second feature</dt><dd><strong>Per-check-in payload size CV.</strong> Timing regularity alone is shared by NTP, health checks and update agents — the dominant false-positive source. A beacon's request is a fixed structure and therefore a near-fixed size; a poller's body tracks what it is reporting.</dd>
+        <dt>How they combine</dt><dd>Both regular → promoted to CRITICAL. Timing regular but sizes varying → demoted to MEDIUM and described as a scheduled poller. No size data → catalogue severity with <code>size_evidence: "unavailable"</code>, never implying a measurement that was not taken. Interval CV remains the gate.</dd>
+        <dt>Detail</dt><dd>Only client bytes count — reply sizes vary legitimately even for a real implant. The in-flight check-in is excluded from the maths, since it has sent nothing yet.</dd>
+      </dl>
+    </div>
+
+    <div class="rule">
+      <div class="rule-top"><span class="rid">BEHAVIOR_CLEARTEXT_ON_TLS_PORT</span><span class="chip crit">critical</span><span class="chip tier">tier 2</span><span class="chip gen">generalises</span></div>
+      <dl>
+        <dt>Fires when</dt><dd>The first client data packet on a TLS-convention port (443, 465, 563, 636, 989, 990, 993, 995, 5061, 6697, 8443) does not open with a TLS handshake record.</dd>
+        <dt>The test</dt><dd>Three bytes at a fixed offset: <code>16 03 0x</code> — content type 22, major version 3. Every TLS version from 1.0 to 1.3 opens this way, because 1.3 keeps a legacy record version on the wire for middlebox compatibility. Legacy SSLv2 ClientHello is also accepted so it is never called cleartext.</dd>
+        <dt>Why it matters</dt><dd>Attackers pick 443 because egress filters allow it, and commodity tooling frequently does not bother wrapping the channel in real TLS. No baseline, no threshold, verdict on <strong>one</strong> packet — where the shape rule needs ~40 packets over ~20 s of typing.</dd>
+        <dt>Guard 1</dt><dd>Only flows whose SYN was observed are judged. Mid-stream, a TLS application-data record (type 23) is indistinguishable from cleartext to a first-byte test, so a sensor starting mid-session renders no verdict rather than a guess.</dd>
+        <dt>Guard 2</dt><dd>The SYN's sequence number is recorded, so a reordered or retransmitted later segment is skipped instead of judged as the opening bytes.</dd>
+        <dt>Classification</dt><dd>Cleartext HTTP → MEDIUM (a listener on the wrong port is a real misconfiguration). Anything else → CRITICAL. The first bytes ship in hex so an analyst can check the call.</dd>
+        <dt>Limit</dt><dd class="lim">A C2 that uses genuine TLS is invisible here, and mature frameworks do. JA3/JA4 fingerprinting is what addresses that, and it is not implemented.</dd>
+        <dt>Not watched</dt><dd class="lim">STARTTLS ports (587, 143, 21, 25) are deliberately excluded — opening in cleartext is correct behaviour there.</dd>
+      </dl>
+    </div>
+
+    <div class="rule">
+      <div class="rule-top"><span class="rid">BEHAVIOR_UNCOMMON_EGRESS_PORT</span><span class="chip high">high</span><span class="chip tier">tier 2</span><span class="chip gen">generalises</span></div>
+      <dl>
+        <dt>Fires when</dt><dd>An internal host opens an outbound session to the internet on a port outside the common-client set.</dd>
+        <dt>Position</dt><dd>Explicitly the weaker fallback — a global port heuristic rather than a per-host baseline. It exists to cover hosts absent from the asset inventory, and it defers to <code>BEHAVIOR_UNEXPECTED_OUTBOUND</code> for any host that has one.</dd>
+        <dt>The hole it leaves</dt><dd class="lim">It exempts exactly the ports an attacker would choose (443, 80, 53, 22…). That hole is why the shape rule and the TLS rule exist.</dd>
+      </dl>
+    </div>
+  </div>
+
+  <h4>The three-layer answer to "does someone already have a shell?"</h4>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Layer</th><th>Evidence needed</th><th>Catches</th><th>Blind to</th></tr></thead>
+      <tbody>
+        <tr><td><code>BEHAVIOR_UNEXPECTED_OUTBOUND</code></td><td>The callback SYN</td><td>Everything, instantly</td><td>Hosts with no baseline</td></tr>
+        <tr><td><code>BEHAVIOR_CLEARTEXT_ON_TLS_PORT</code></td><td>One data packet</td><td>Any non-TLS channel on 443</td><td>C2 wrapped in real TLS</td></tr>
+        <tr><td><code>BEHAVIOR_INTERACTIVE_SHELL</code></td><td>~40 packets of typing</td><td>Any shell, any port, encrypted or not</td><td>Automated tasking; heavy padding</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>4.5 — Impact, lateral movement, exfiltration</h3>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Rule</th><th>Severity</th><th>Fires when</th></tr></thead>
+      <tbody>
+        <tr><td><code>FLOOD_SYN</code></td><td>critical</td><td>&gt;100 SYNs from a source with a SYN:ACK ratio above 5</td></tr>
+        <tr><td><code>FLOOD_PACKET_RATE</code></td><td>critical</td><td>&gt;200 packets from one source in 3 s</td></tr>
+        <tr><td><code>FLOOD_UDP_AMPLIFICATION</code></td><td>high</td><td>&gt;50 requests in 10 s to an amplification port (53, 123, 1900, 11211, 19, 17)</td></tr>
+        <tr><td><code>LATERAL_ADMIN_SWEEP</code></td><td>critical</td><td>One internal host establishes sessions to 6+ internal hosts on admin ports (22, 23, 135, 139, 445, 1433, 3306, 3389, 5432, 5900, 5985, 5986) within 120 s</td></tr>
+        <tr><td><code>BREACH_SESSION</code></td><td>critical</td><td>A data-heavy session (≥12 KB) with a host:port that the same source brute-forced within the last 180 s</td></tr>
+        <tr><td><code>EXFIL_BULK_OUTBOUND</code></td><td>critical</td><td>&gt;50 MB internal→external within 300 s</td></tr>
+        <tr><td><code>COLLECTION_STAGING</code></td><td>high</td><td>One internal host aggregates ≥20 MB from 5+ distinct internal sources in 300 s</td></tr>
+        <tr><td><code>EXFIL_DNS_TUNNEL</code></td><td>high</td><td>15 suspicious queries to one parent domain in 60 s</td></tr>
+        <tr><td><code>CREDS_CLOUD_METADATA</code></td><td>high</td><td>6+ hits in 20 s to an IMDS endpoint (169.254.169.254 and equivalents)</td></tr>
+        <tr><td><code>MITM_ARP_SPOOF</code></td><td>critical</td><td>An IP claimed by a MAC other than its inventory-verified one</td></tr>
+        <tr><td><code>ASSET_ROGUE_HOST</code></td><td>medium</td><td>An internal IP announces on the LAN but is absent from the asset inventory</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p><strong><code>BREACH_SESSION</code>'s reasoning</strong> is worth being able to state: TCP completes for failed logins too, so connection establishment proves nothing. Byte volume of the session afterwards is the honest packet-level discriminator between a failed attempt and a successful one. The alert carries <code>confidence: "medium (network-inferred; confirm via host auth logs)"</code> rather than claiming certainty.</p>
+
+  <p><strong><code>EXFIL_DNS_TUNNEL</code>'s heuristic</strong> is a query qualifying if <em>any</em> of: the record type is TXT/NULL/IXFR/AXFR; a single label exceeds 45 characters; or the name exceeds 60 characters and the subdomain's Shannon entropy is ≥ 3.6 bits/char, which is what base32- or hex-encoded payload looks like.</p>
+
+  <p><strong><code>MITM_ARP_SPOOF</code> has two modes.</strong> With an asset inventory it knows the correct MAC, so it names the impostor and marks the finding <code>verified: true</code>. Without one it learns on first sight and reports a MAC change as unverified — because the sensor may have started mid-attack, in which case first-seen-wins would blame the victim.</p>
+
+  <h3>4.6 — Correlation tier</h3>
+  <div class="rules">
+    <div class="rule">
+      <div class="rule-top"><span class="rid">CORRELATED_INCIDENT</span><span class="chip high">high</span><span class="chip tier">correlation</span></div>
+      <dl><dt>Fires when</dt><dd>The correlation engine opens an incident (§6). Escalates to CRITICAL once three or more kill-chain stages are reached.</dd></dl>
+    </div>
+    <div class="rule">
+      <div class="rule-top"><span class="rid">ACTIVE_INTRUSION</span><span class="chip crit">critical</span><span class="chip tier">correlation</span></div>
+      <dl>
+        <dt>Fires when</dt><dd>A host's per-host kill-chain state reaches <code>initial_access</code> <em>plus</em> any post-access stage.</dd>
+        <dt>Detail</dt><dd>Fired once per host, and deliberately raised outside the state lock because <code>generate_alert</code> re-enters the same function.</dd>
+      </dl>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 5 ══ -->
+<section id="s5">
+  <h2><span class="n">05</span><span>Fragment reassembly</span></h2>
+  <p class="lede">This is a good story to be able to tell, because it is a complete evasion that worked, a precise explanation of why, and a fix that normalises rather than blocks.</p>
+
+  <p><code>nmap -f</code> splits the 20-byte TCP header across 8-byte IP fragments. Only the first fragment carries the source and destination ports, at offsets 0–3. The flags byte lives at TCP offset 13 — which lands in the <em>second</em> fragment. So a rule engine inspecting fragments as they arrive sees:</p>
+  <ul>
+    <li>fragment 0 — ports, but no flags</li>
+    <li>fragment 1 — flags, but no ports and no parseable TCP layer at all</li>
+  </ul>
+  <p>Neither matches a scan signature. The scan was completely invisible. Reassembling before rule matching means a fragmented <code>-sF</code> normalises to exactly the same <code>TCP_FIN_SCAN</code> as an unfragmented one, and every downstream rule sees an ordinary packet.</p>
+
+  <h4>Design decisions inside it</h4>
+  <ul>
+    <li><strong>Datagram key is <code>(src, dst, ip_id, proto)</code></strong> — the correct key per RFC 791. <code>ip_id</code> alone collides across hosts.</li>
+    <li><strong>Coverage is tracked as merged byte intervals</strong>, not a fragment count. The classic evasion is sending overlapping and conflicting fragments; a count can be faked, an interval set cannot.</li>
+    <li><strong>First-writer-wins on overlaps</strong>, mirroring BSD/Linux policy, with the overlap recorded in stats. Overlapping-fragment evasion works because stacks resolve conflicts differently — dropping the datagram entirely would hand the attacker an easy bypass, so we pick a policy and match against the result.</li>
+    <li><strong>Bounded on every axis</strong>: 30-second timeout, 1024 concurrent buffers, 128 fragments per datagram, 65535-byte cap. Anything dropped is counted and surfaced via <code>/status</code> rather than disappearing.</li>
+    <li><strong>Pure-bytes core plus a thin scapy adapter</strong>, so the reassembly logic is unit-tested without a packet library.</li>
+  </ul>
+  <p>Alerts produced from a reassembled datagram are annotated <code>evasion_attempted: "IP fragmentation (nmap -f)"</code>, so the attempt stays visible rather than being silently normalised away.</p>
+</section>
+
+<!-- ══ 6 ══ -->
+<section id="s6">
+  <h2><span class="n">06</span><span>Correlation engine</span></h2>
+  <p class="lede">The previous engine's output looked arbitrary. Diagnosing exactly why, then writing a specification before writing the replacement, is the most transferable piece of work in the project.</p>
+
+  <h4>What the old one did</h4>
+  <p>It appended alert <em>type strings</em> to a per-source list, then tested four hardcoded <code>set.issubset</code> rules plus a catch-all of "3 or more distinct types". Three defects followed:</p>
+  <ul>
+    <li><strong>No time window anywhere.</strong> Nothing carried a timestamp; nothing was ever pruned by age. Events from hours apart combined freely.</li>
+    <li><strong>Source was not consistently the actor.</strong> Data staging filed under the collecting host (the victim); ARP spoofing filed under the forged IP (never the attacker); distributed scan passed <code>None</code>. So one bucket mixed attacker-attributed and victim-attributed events.</li>
+    <li><strong>The catch-all was trivially satisfied.</strong> A single <code>nmap -sS</code> run produces more than three distinct alert types, so one scan manufactured a CRITICAL "Multi-Vector Attack".</li>
+  </ul>
+
+  <h4>The specification the replacement implements</h4>
+  <p><strong>Grouping key: source IP, and only source IP.</strong> Destination was considered and rejected — it would split one attacker sweeping three hosts into three incidents, the opposite of what an incident is for. Destinations are recorded as evidence <em>on</em> the incident instead.</p>
+  <p><strong>Actor attribution</strong> is a refinement, not a second key. Detectors pass an explicit actor, and events whose source semantics are <code>unknown</code> (forged) are dropped rather than grouped under whoever the packet claimed to be.</p>
+  <p><strong>Promotion rule.</strong> An incident opens only when a source's buffered events show <em>forward progression through the kill chain</em> — there exist events e₁, e₂ with ts(e₁) ≤ ts(e₂) and stage_index(e₁) &lt; stage_index(e₂).</p>
+
+  <div class="chain">
+    <span><b>0</b>Reconnaissance</span><span><b>1</b>Credential Access</span><span><b>2</b>Initial Access</span><span><b>3</b>Privilege Escalation</span><span><b>4</b>Persistence</span><span><b>5</b>Command &amp; Control</span><span><b>6</b>Lateral Movement</span><span><b>7</b>Collection</span><span><b>8</b>Exfiltration</span>
+  </div>
+
+  <p>Every consequence of that rule is deliberate:</p>
+  <ul>
+    <li>Five port scans do <strong>not</strong> open an incident. Neither does a port scan plus a slow scan plus a flag signature — all reconnaissance, no advancement.</li>
+    <li>Recon followed by an exploit attempt <strong>does</strong>.</li>
+    <li>The reverse order — C2 at t=0, recon at t=30 — does <strong>not</strong>. Nothing advanced.</li>
+    <li>Stage-less events (floods, ARP) never <em>open</em> an incident but do attach to an open one as context.</li>
+    <li>INFO-severity events never open one and never attach.</li>
+  </ul>
+
+  <p><strong>Severity</strong> is the worst member alert, escalating to CRITICAL at three or more distinct stages. The escalation is gated on <em>stage</em> count, not alert count — a single nmap run satisfies "three distinct alert types" but cannot satisfy three distinct kill-chain stages.</p>
+
+  <div class="note">
+    <span class="tag">Determinism under concurrency</span>
+    <p>Ingest, evaluate and mutate happen inside one critical section, removing the old check-then-act race. Progression is computed over the buffer <em>sorted by event timestamp</em>, not arrival order — so N threads delivering the same N events in any interleaving produce byte-identical grouping. A test asserts this with 8 threads over a shuffled sequence.</p>
+  </div>
+
+  <p><strong>Bounded:</strong> 600-second default window, 4096 tracked sources under LRU eviction (open incidents are never evicted), 500 stored events per incident with the overflow still counted. A <code>--rand-source</code> flood cannot exhaust memory.</p>
+
+  <p>Separately, <code>main.py</code> maintains a simpler <strong>per-host intrusion state</strong> that classifies each host as QUIET / PROBING / UNDER ATTACK / BREACHED / ACTIVE INTRUSION. That is what powers the dashboard's Intrusion Status panel and answers the operator's actual question: is this host just poking at us, or is it inside and moving?</p>
+</section>
+
+<!-- ══ 7 ══ -->
+<section id="s7">
+  <h2><span class="n">07</span><span>Alert retention and deduplication</span></h2>
+  <p class="lede">The old store was <code>deque(maxlen=500)</code> — a fixed ring where 200 identical port-scan pings from one host silently pushed every CRITICAL off the end. Two independent defects with one symptom: no severity weighting, and no deduplication.</p>
+
+  <h4>Retention by severity</h4>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Severity</th><th>TTL</th><th>Eviction order under capacity pressure</th></tr></thead>
+      <tbody>
+        <tr><td>critical</td><td class="num">indefinite</td><td>last</td></tr>
+        <tr><td>high</td><td class="num">indefinite</td><td>fourth</td></tr>
+        <tr><td>medium</td><td class="num">24 h</td><td>third</td></tr>
+        <tr><td>low</td><td class="num">6 h</td><td>second</td></tr>
+        <tr><td>info</td><td class="num">1 h</td><td>first</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Capacity is 5000 records. Eviction sorts by (severity rank, age), so a CRITICAL is only dropped once every INFO, LOW, MEDIUM and HIGH is already gone — at which point something is very wrong and the audit log says so.</p>
+
+  <h4>Deduplication</h4>
+  <p>Alerts identical on <code>(rule_id, src, dst, dst_port, severity)</code> within a rolling 300-second window collapse into one record carrying <code>count</code>, <code>first_seen</code> and <code>last_seen</code>. 200 identical pings become one record with <code>count: 200</code>.</p>
+  <p><strong>Destination port is in the key on purpose.</strong> A scan sweeping 200 ports is one scan, but the per-port alerts are genuinely different facts. It is the repeated alert for the <em>same</em> port that is redundant.</p>
+  <p>A subtle consequence handled explicitly: alert IDs are assigned only <em>after</em> an alert survives deduplication. Otherwise every collapsed repeat would burn an ID and leave gaps in the sequence that look like lost alerts.</p>
+
+  <div class="note">
+    <span class="tag">Nothing vanishes silently</span>
+    <p>Every eviction and every collapse is written to an audit log exposed at <code>GET /alerts/retention</code>. If an alert is gone, the log says which rule it was, how many were folded into it, and why it went. The dashboard reports both "records" and "alerts represented", because showing only the record count would under-report the attack.</p>
+  </div>
+</section>
+
+<!-- ══ 8 ══ -->
+<section id="s8">
+  <h2><span class="n">08</span><span>Baselines: <code>assets.json</code></span></h2>
+  <p>Tier 2's strongest rules diff against a known-good baseline. The file supplies four things:</p>
+  <ul>
+    <li><strong><code>hosts</code></strong> — per-host <code>listening_ports</code> (feeds the bind-shell rule), plus either an explicit <code>allowed_outbound</code> list or <code>learn_outbound: true</code>.</li>
+    <li><strong><code>trusted_arp</code></strong> / <code>gateway</code> — the trust anchor that turns "a MAC changed" into "this MAC is the impostor".</li>
+    <li><strong><code>authorized_scanners</code></strong> — IPs whose reconnaissance is recorded at INFO instead of suppressed. An unlisted host running the same scan still alerts at full severity; this is an allowlist, not a weakened rule.</li>
+    <li><strong><code>authorized_shell_sessions</code></strong> — <code>[client, server]</code> pairs exempt from the interactive-shell rule, for hosts where the host sensor is not deployed.</li>
+  </ul>
+
+  <p>The file is optional, and the startup path is explicit about what is switched off without it: ARP falls back to learn-on-first-sight, rogue-host detection is off, and <em>Tier 2 has nothing to diff against</em>. That warning exists because a sensor could otherwise run with its strongest post-compromise rules silently doing nothing.</p>
+
+  <p><code>baseline_assets.py</code> generates a starter block from a pcap or live capture. Two caveats ship with it and both are worth repeating in an interview:</p>
+  <div class="note warn">
+    <span class="tag">The baseline trap</span>
+    <p><strong>A baseline taken from a compromised host bakes the compromise in.</strong> If the C2 channel is active during the capture, the tool faithfully records it as normal and the sensor will never alert on it again.</p>
+    <p><strong>Port collapsing re-blinds the rule.</strong> By default a port seen reaching 5+ destinations is widened to "any destination", which keeps browser traffic manageable — but a reverse shell on that port no longer trips the outbound rule. <code>--collapse-after 0</code> keeps every destination explicit. The generated file flags which ports were widened and what that cost.</p>
+  </div>
+  <p>The design response to both: the output is annotated with what was seen and how often, so an entry that looks wrong is visible rather than buried in a list of ports. It is a starting point for review, not an answer.</p>
+</section>
+
+<!-- ══ 9 ══ -->
+<section id="s9">
+  <h2><span class="n">09</span><span>The other three sensors</span></h2>
+
+  <h3><code>host_log_sensor.py</code> — the only source that knows</h3>
+  <p>Reads Linux <code>auth.log</code>-format files and detects what neither packet capture nor flow logs can see, because it happens above the network layer:</p>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Alert</th><th>Source line</th><th>Kill-chain stage</th></tr></thead>
+      <tbody>
+        <tr><td>SSH Login</td><td>sshd "Accepted password/publickey"</td><td>Initial Access</td></tr>
+        <tr><td>Host Brute Force</td><td>bursts of sshd "Failed password" (5 in 120 s)</td><td>Credential Access</td></tr>
+        <tr><td>Root Access</td><td>sudo→root, su→root, root SSH login</td><td>Privilege Escalation</td></tr>
+        <tr><td>Sensitive File Access</td><td>sudo reading <code>/etc/shadow</code>, ssh keys</td><td>Collection</td></tr>
+        <tr><td>Persistence</td><td><code>useradd</code>, adding a user to sudo/wheel</td><td>Persistence</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>This sensor closes the honesty gap in the network rules. Network detection can only <em>infer</em> a breach from traffic volume; auth logs <em>confirm</em> one. And privilege escalation and persistence are network-invisible entirely — the auth log is the only truthful source for them.</p>
+  <p>It also feeds back: an <code>SSH Login</code> alert calls <code>note_authorized_session()</code>, which is the sole mechanism that keeps a legitimate SSH session from tripping <code>BEHAVIOR_INTERACTIVE_SHELL</code>.</p>
+
+  <h3><code>cloud_log_sensor.py</code> — log-native detection</h3>
+  <p>Reads AWS VPC Flow Log files with no network privileges, no traffic mirroring, and no cloud account. Detects impossible travel (one source IP in two distant regions rapidly), log-based port scanning, exfiltration by byte volume, API abuse, brute force from REJECT flows, UDP amplification, and lateral movement.</p>
+  <p>The interesting inversion: <strong>cloud metadata (IMDS) access lives in the <em>packet</em> sensor, not this one</strong>, because 169.254.169.254 is link-local and VPC Flow Logs do not record it. Two telemetry sources with genuinely complementary blind spots is the point.</p>
+
+  <h3><code>live_ids_v2.py</code> — the ML sensor</h3>
+  <p>Captures packets, assembles per-flow feature vectors, runs inference on mature flows (≥5 packets), and POSTs alerts. Flows expire after 120 s to bound memory. It runs standalone against a pcap for offline evaluation, or live against an interface. See §10.</p>
+</section>
+
+<!-- ══ 10 ══ -->
+<section id="s10">
+  <h2><span class="n">10</span><span>Machine learning</span></h2>
+  <p class="lede">Two models trained on CIC-IDS2017, both multiclass HistGradientBoosting, both reported with metrics that are not flattering — which is the point.</p>
+
+  <h4>Why two models</h4>
+  <p><strong>Model A (reference)</strong> uses all 78 CIC-IDS flow-statistics features. It is the accuracy ceiling but needs a flow-feature extractor to serve live.</p>
+  <p><strong>Model B (served)</strong> maps those 78 features onto the 10 numeric + 3 categorical features the live sensor can actually derive from packet headers. This is the model the sensor runs.</p>
+
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Metric</th><th>Model B — live schema (13 feat)</th><th>Model A — full flow (78 feat)</th></tr></thead>
+      <tbody>
+        <tr><td>Accuracy</td><td class="num">0.9635</td><td class="num">0.9977</td></tr>
+        <tr><td>Balanced accuracy</td><td class="num">0.9106</td><td class="num">0.9231</td></tr>
+        <tr><td><strong>Macro F1</strong></td><td class="num">0.6563</td><td class="num">0.8607</td></tr>
+        <tr><td>Weighted F1</td><td class="num">0.9779</td><td class="num">0.9978</td></tr>
+        <tr><td>Any-attack recall</td><td class="num">0.9996</td><td class="num">0.9999</td></tr>
+        <tr><td>False positive rate</td><td class="num">0.0437</td><td class="num">0.0024</td></tr>
+        <tr><td>Test samples</td><td class="num">707,686</td><td class="num">707,686</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note">
+    <span class="tag">Read macro F1, not accuracy</span>
+    <p>Accuracy of 0.9635 sounds excellent and means almost nothing — BENIGN is roughly 80% of the rows, so a classifier that predicts BENIGN always scores well. <strong>Macro F1 of 0.656 is the honest number</strong>: averaged per class, the live-schema model is mediocre at telling attack <em>types</em> apart. The gap between 0.656 and Model A's 0.861 is exactly the cost of collapsing 78 flow statistics into 13 packet-derivable features — and that cost is reported plainly rather than hidden behind the accuracy figure.</p>
+  </div>
+
+  <p>Fifteen classes: BENIGN, Bot, DDoS, DoS GoldenEye, DoS Hulk, DoS Slowhttptest, DoS slowloris, FTP-Patator, Heartbleed, Infiltration, PortScan, SSH-Patator, and three Web Attack variants. The three rarest have double-digit support, so their per-class recall is noisy and is labelled low-support in the training report.</p>
+
+  <h4>Feature importance — and what it exposes</h4>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Model B (served)</th><th></th><th>Model A (reference)</th><th></th></tr></thead>
+      <tbody>
+        <tr><td>service (dst port)</td><td class="num">100%</td><td>Destination Port</td><td class="num">100%</td></tr>
+        <tr><td>src_bytes</td><td class="num">79.0%</td><td>min_seg_size_forward</td><td class="num">40.8%</td></tr>
+        <tr><td>dst_bytes</td><td class="num">77.3%</td><td>Init_Win_bytes_forward</td><td class="num">33.2%</td></tr>
+        <tr><td>duration</td><td class="num">69.3%</td><td>Init_Win_bytes_backward</td><td class="num">29.0%</td></tr>
+        <tr><td>count</td><td class="num">48.0%</td><td>Fwd IAT Min</td><td class="num">23.0%</td></tr>
+        <tr><td>flag</td><td class="num">6.3%</td><td>Flow IAT Min</td><td class="num">20.1%</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Both models lean hardest on destination port. That is a real and citable weakness of CIC-IDS2017: attack traffic in the capture is heavily port-correlated, so a model can score well by learning the lab's port assignments rather than attack behaviour. Being able to say this unprompted is worth more than the metrics.</p>
+
+  <h4>Train/serve alignment</h4>
+  <p>The feature list is defined once in <code>feature_engineering/live_features.py</code>, and <em>both</em> the trainer and the sensor import it. Order is fixed: numeric features first, then the one-hot encoding appended.</p>
+  <p>The reason this matters is a specific mistake the project made and then corrected. The original NSL-KDD pipeline trained on all 41 features while the live sensor could only compute about 13, zeroing the rest. That is a train/serve distribution mismatch — the model leans on columns that are always zero in production. The fix was to define the live-computable subset as the single source of truth and train only on it.</p>
+  <p>Two approximations are documented rather than hidden: NSL-KDD's <code>count</code>/<code>srv_count</code> are defined over a 2-second window of connections to the same host/service, which the live sensor approximates with per-flow packet intensity (correlated, not identical); and CIC-IDS's flag counts are whole-flow aggregates, so the derived <code>flag</code>/<code>serror_rate</code>/<code>rerror_rate</code> are approximations of the sensor's per-packet state machine.</p>
+
+  <div class="note limit">
+    <span class="tag">Evaluation honesty</span>
+    <p>CIC-IDS2017 ships no canonical train/test split, so this uses a stratified 75/25 hold-out with a fixed seed. That is <strong>in-distribution</strong> — same capture week, same network — so these figures are an optimistic upper bound relative to a fresh deployment, not a generalisation estimate.</p>
+  </div>
+
+  <p><strong>Where ML sits in the architecture:</strong> it is one alert source among four, arriving as <code>ML_FLOW_ANOMALY</code> at MEDIUM severity. It is not the detection engine. The rule layer carries the load, and the reason is stated plainly — a rule can explain itself with the measurement that triggered it, and a gradient-boosted tree cannot.</p>
+</section>
+
+<!-- ══ 11 ══ -->
+<section id="s11">
+  <h2><span class="n">11</span><span>API, authentication and authorisation</span></h2>
+
+  <h4>Two separate authentication systems</h4>
+  <p><strong>Humans</strong> get bearer tokens: 32 random bytes hex-encoded, stored in SQLite with an 8-hour expiry, purged on every validation. <strong>Sensors</strong> get a pre-shared key on an <code>X-Sensor-Key</code> header, compared with <code>hmac.compare_digest</code>. The sensor path deliberately does <em>not</em> accept user tokens and the user path does not accept the sensor key — so a leaked sensor key permits alert injection, never alert disclosure.</p>
+
+  <h4>Passwords</h4>
+  <p>PBKDF2-HMAC-SHA256, 200,000 iterations, 16-byte random salt, stored as <code>pbkdf2$sha256$&lt;iters&gt;$&lt;salt&gt;$&lt;hash&gt;</code>, verified in constant time. Legacy unsalted SHA-256 hashes are still verifiable and are <strong>transparently upgraded to PBKDF2 on next successful login</strong> — migration without locking anyone out.</p>
+
+  <div class="note warn">
+    <span class="tag">A real finding in this project's own history</span>
+    <p>The repo shipped a documented default admin password (<code>nids@admin123</code>) until 2026-08-11. A default password in a public repository is not a default — it is a published credential. Worse, the project's own user database was committed before <code>*.db</code> was gitignored, and that blob is <em>still reachable in git history</em>. Impact was assessed as low only because the hash was of the password the README already stated in plain text.</p>
+    <p>The lesson, which is the part worth saying out loud: <strong><code>.gitignore</code> prevents future commits; it does not remove what is already published.</strong> Adding the ignore rule felt like a fix and was not one. The actual fix was to generate a random 20-character password per deployment and print it once at startup, so nothing publicly known can log in.</p>
+  </div>
+
+  <h4>Roles</h4>
+  <p>Three roles as frozensets of permissions, checked by a FastAPI dependency factory: <strong>viewer</strong> (view), <strong>analyst</strong> (view, export), <strong>admin</strong> (view, export, delete, control sniffer, manage users).</p>
+
+  <h4>Endpoints</h4>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Endpoint</th><th>Auth</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><code>GET /health</code></td><td>public</td><td>Liveness plus whether scapy is available</td></tr>
+        <tr><td><code>GET /status</code></td><td>any session</td><td>Packets, alerts, records vs represented, incidents, interface, <strong>sniffer_error</strong>, fragments reassembled</td></tr>
+        <tr><td><code>GET /alerts</code></td><td>view_alerts</td><td>Filterable by severity, type, rule_id</td></tr>
+        <tr><td><code>GET /alerts/retention</code></td><td>view_alerts</td><td>Policy, occupancy, and the eviction/collapse audit log</td></tr>
+        <tr><td><code>GET /incidents</code></td><td>view_alerts</td><td>Correlated incidents and the grouping rules in force</td></tr>
+        <tr><td><code>GET /intrusions</code></td><td>view_alerts</td><td>Per-host kill-chain progression, ranked by depth</td></tr>
+        <tr><td><code>GET /rules/coverage</code></td><td>any session</td><td>Per-tier coverage with the honesty note and scope limit</td></tr>
+        <tr><td><code>GET /model/info</code></td><td>any session</td><td>Both models' metrics, read live from training metadata</td></tr>
+        <tr><td><code>POST /alert</code></td><td>sensor key</td><td>Ingest from the three external sensors</td></tr>
+        <tr><td><code>POST /control/start|stop</code></td><td>control_sniffer</td><td>Capture control; start <strong>rejects a nonexistent interface</strong></td></tr>
+        <tr><td><code>DELETE /alerts</code></td><td>delete_alerts</td><td>Clear the store</td></tr>
+        <tr><td><code>/auth/*</code>, <code>/users</code></td><td>varies</td><td>Login, logout, password change, user management</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h4>Three silent failures that were fixed together</h4>
+  <p>These are worth knowing because "the NIDS looked dead" was a real incident, and the causes were all about <em>honest state reporting</em>:</p>
+  <ul>
+    <li>The capture interface was hardcoded to <code>ens37</code>, which exists only on the lab sensor VM. Anywhere else it captured nothing and reported success. Now <code>NIDS_IFACE</code>, with <code>auto</code> supported and available interfaces listed on error.</li>
+    <li>The capture thread died on exception while <code>running</code> stayed <code>True</code> — the dashboard showed a live sensor capturing zero packets forever. Now the error is recorded in <code>system_stats["sniffer_error"]</code>, surfaced through <code>/status</code>, and <code>running</code> is set false in a <code>finally</code>.</li>
+    <li>The dashboard hardcoded its API origin, so browsing from another machine silently talked to the wrong host. It now derives the API base from whichever origin served the page.</li>
+  </ul>
+  <p>A fourth, related: the capture loop runs in one-second timeout slices rather than one blocking <code>sniff()</code>, because <code>stop_filter</code> is only evaluated when a packet arrives — on a quiet link, a stop request would otherwise hang until the next packet.</p>
+</section>
+
+<!-- ══ 12 ══ -->
+<section id="s12">
+  <h2><span class="n">12</span><span>How it is tested</span></h2>
+
+  <div class="stats">
+    <div class="stat good"><span class="v">163</span><span class="k">unit tests passing</span></div>
+    <div class="stat good"><span class="v">36/36</span><span class="k">efficacy cases</span></div>
+    <div class="stat good"><span class="v">25</span><span class="k">true positives</span></div>
+    <div class="stat good"><span class="v">0</span><span class="k">false positives</span></div>
+    <div class="stat good"><span class="v">0</span><span class="k">false negatives</span></div>
+    <div class="stat"><span class="v">12</span><span class="k">benign scenarios</span></div>
+  </div>
+
+  <h4>Two layers</h4>
+  <p><strong>Unit tests</strong> (163 across 9 modules) exercise each detector in isolation with an injected fake clock — no sleeping, no network, whole suite in under 0.1 s.</p>
+  <p><strong>The efficacy harness</strong> is the more unusual artifact. It runs 36 scored scenarios through the real pipeline and reports true positives, false positives and false negatives per attack category. It exists because every finding from a manual TP/FP/FN testing round has a case here, so a regression shows up as a failing case rather than a surprise during the next manual round. It exits non-zero, so it can gate a commit.</p>
+
+  <div class="note">
+    <span class="tag">The mechanism that keeps specificity from rotting</span>
+    <p>Beyond firing or not, the harness checks every alert against its rule's declared discriminators. <strong>A rule that detects the attack but emits a featureless detail dict FAILS the case.</strong> That is what prevents a specific rule from quietly decaying back into a generic bucket label — the exact regression the rule-ID work was meant to prevent.</p>
+  </div>
+
+  <h4>The benign half is the important half</h4>
+  <p>Twelve of the 36 scenarios assert <em>zero</em> alerts above INFO and zero incidents: a subnet service check, allowlisted nmap, failed-login noise, bursty curl, a normal SSH session, normal FTP login, normal IRC chat, real HTTPS, STARTTLS SMTP on 587, host-sensor-confirmed SSH, allowlisted-pair SSH, and a bulk file transfer. Several are precise negative cases for a specific rule — normal FTP for the vsftpd signature, normal IRC for UnrealIRCd, bulk transfer for the interactive-shell shape.</p>
+
+  <h4>Two regressions found by the tests themselves</h4>
+  <ul>
+    <li><strong>tcp/8080 in the brute-force watch list</strong>, turning ordinary API polling into HIGH brute-force alerts. Caught by a benign regression test.</li>
+    <li><strong>Non-ASCII characters in alert text.</strong> An arrow in an alert message raised <code>UnicodeEncodeError</code> on a cp1252 stdout — <em>inside the capture thread</em>, killing the alert and returning 500 on the API path. This was the same bug fixed once before and reintroduced, because the original fix was "keep the strings ASCII" — a promise every future call site has to remember. It is now handled once, at the single point alerts are written out, so it cannot recur.</li>
+  </ul>
+  <p>That second one generalises into a principle worth stating: <strong>a fix that depends on everyone remembering a rule is not a fix.</strong> Put the guarantee at the chokepoint.</p>
+
+  <div class="note limit">
+    <span class="tag">Run it with the right interpreter</span>
+    <p>The harness's fragmented-scan case needs scapy and silently returns early without it, scoring as a false negative. Run <code>venv\Scripts\python.exe efficacy_harness.py</code> — the system Python will report a phantom 35/36.</p>
+  </div>
+</section>
+
+<!-- ══ 13 ══ -->
+<section id="s13">
+  <h2><span class="n">13</span><span>Coverage and limits</span></h2>
+  <p class="lede">This section is the one most worth rehearsing. Any interviewer who knows the field will test whether the limits of the telemetry are understood, and "I know exactly what my sensor can and cannot prove" is the senior answer.</p>
+
+  <h4>The scope statement, stated first everywhere</h4>
+  <p>This is <strong>network-only detection</strong>. It sees packets on the monitored segment and infers everything from them. It has no host, process, or EDR visibility. It therefore cannot see:</p>
+  <ul>
+    <li>code executing in memory, or any action producing no packets</li>
+    <li>an exploit delivered inside a TLS session it cannot decrypt</li>
+    <li>local privilege escalation</li>
+    <li>anything on a host whose traffic never crosses the monitored segment</li>
+    <li>whether a login actually <strong>succeeded</strong> — TCP completes for failed logins too</li>
+  </ul>
+
+  <h4>ATT&amp;CK coverage, with the holes published</h4>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Tactic</th><th>Coverage</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td>Discovery / Reconnaissance</td><td>Strong</td><td>Scans are inherently network-visible</td></tr>
+        <tr><td>Command and Control</td><td>Strong</td><td>Beaconing, shell shape, TLS absence, egress anomaly</td></tr>
+        <tr><td>Lateral Movement</td><td>Partial</td><td>Fan-out only; no first-time-peer novelty detection yet</td></tr>
+        <tr><td>Exfiltration</td><td>Partial</td><td>Volume and DNS tunnelling; slow-drip is not covered</td></tr>
+        <tr><td>Credential Access</td><td>Partial</td><td>Brute-force attempts visible; success is not</td></tr>
+        <tr><td>Initial Access</td><td>Partial</td><td>Five payload signatures plus behavioural consequences</td></tr>
+        <tr><td>Impact</td><td>Covered</td><td>Floods and amplification</td></tr>
+        <tr><td>Execution</td><td><strong>None</strong></td><td>Host-level. Requires <code>host_log_sensor.py</code></td></tr>
+        <tr><td>Privilege Escalation</td><td><strong>None</strong> (network)</td><td>Host-level. Auth log only</td></tr>
+        <tr><td>Persistence</td><td>Weak</td><td>Only the network-visible slice — a new listening port</td></tr>
+        <tr><td>Defense Evasion</td><td><strong>None</strong></td><td>Host-level</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Stating this plainly is worth more than claiming full coverage. A project claiming to detect privilege escalation from packet capture gets caught in the first five minutes.</p>
+
+  <h4>Untested rule logic</h4>
+  <p>Ten rules received IDs and discriminators during the rule-layer rebuild but their <em>detection logic</em> is unchanged from before it and is not exercised by the harness: <code>SCAN_DISTRIBUTED</code>, <code>SCAN_SLOW_RATE</code>, <code>MITM_ARP_SPOOF</code>, <code>ASSET_ROGUE_HOST</code>, <code>EXFIL_DNS_TUNNEL</code>, <code>EXFIL_BULK_OUTBOUND</code>, <code>COLLECTION_STAGING</code>, <code>CREDS_CLOUD_METADATA</code>, <code>LATERAL_ADMIN_SWEEP</code>, <code>BREACH_SESSION</code>. Coverage should never be described as complete without saying so.</p>
+</section>
+
+<!-- ══ 14 ══ -->
+<section id="s14">
+  <h2><span class="n">14</span><span>Known gaps and what comes next</span></h2>
+
+  <p>The single highest-leverage missing component is a <strong>per-host behavioural profile store</strong>. Look at what nearly every remaining detection idea has in common — "first time", "unlike this host normally", "relative to its own history". Once a store of peers, ports, volume, direction ratio, active hours and TLS fingerprints exists, half the remaining rules become one-liners against it.</p>
+
+  <p>What exists today is one narrow slice: the outbound anomaly detector keeps <code>{host: {(dst, port)}}</code>, but only for monitored hosts and only for outbound SYNs. Nothing anywhere records typical volume, direction, or timing per host.</p>
+
+  <h4>Falls out of the profile store</h4>
+  <ul>
+    <li><strong>First-time peer on an admin port</strong> — catches the single deliberate hop that a fan-out threshold of 6 structurally cannot see.</li>
+    <li><strong>Ratio flip</strong> — a host that normally downloads starts uploading. The current 50 MB / 300 s absolute threshold misses this entirely and fires on legitimate backups.</li>
+    <li><strong>Slow-drip exfiltration</strong> — needs cumulative per-host, per-destination, per-day accounting, which a 300-second sliding window cannot express at any threshold.</li>
+    <li><strong>JA3/JA4 as per-host novelty</strong> — "a TLS fingerprint never seen before from this host" is computable and defensible; "a fingerprint matching no known browser" needs a curated corpus that is not available here.</li>
+  </ul>
+  <p>It also fixes alert fatigue: baseline deviation gives a natural ranking signal, so alerts get ordered instead of suppressed. The disciplined way to do that is a separate <code>confidence</code> field the dashboard sorts by — feeding a continuous score into catalogue severity would make severity non-reproducible across restarts.</p>
+
+  <h4>Deferred with a stated reason</h4>
+  <p>All the Active Directory detections — Kerberoasting (many TGS requests for distinct SPNs), DCSync (DRSUAPI replication from a non-DC), AS-REP roasting, RC4 downgrade, workstation-to-workstation SMB, bulk LDAP — are high fidelity and fully network-visible. They are deferred because the lab is Kali / Metasploitable / Ubuntu with no domain controller, so they cannot be fired even once. Shipping rules that can never be tested would undercut the project's main strength.</p>
+
+  <h4>Also open</h4>
+  <ul>
+    <li>UDP and ICMP carry no Tier 1 or Tier 2 inspection.</li>
+    <li>The CIC-IDS multiclass model is trained but the live sensor still serves a binary verdict; wiring the multiclass prediction through to the dashboard is unfinished.</li>
+    <li>The interactive-shell and TLS detectors have <code>sweep()</code> methods that no periodic task calls. Both are bounded by flow caps and close-on-FIN, so nothing leaks — but the sweep is dead code until a maintenance tick exists.</li>
+  </ul>
+</section>
+
+<!-- ══ 15 ══ -->
+<section id="s15">
+  <h2><span class="n">15</span><span>Questions to be ready for</span></h2>
+  <p class="lede">The ones an experienced interviewer actually asks, and the answer that holds up.</p>
+
+  <div class="qa">
+    <details>
+      <summary>Why build this instead of deploying Suricata or Zeek?</summary>
+      <div class="answer">
+        <p>For production I would deploy Zeek. The point of building it was to understand detection engineering from telemetry up: what feature separates two things that look alike on the wire, how confident that feature lets you be, and where it stops working. You cannot learn that from writing config. The portable version of the work is the reasoning — and I would move the log-shaped host-sensor rules into Sigma to close the toolchain gap, while keeping the stateful flow analytics (interval CV, turn-taking ratios) in code, because Sigma cannot express them.</p>
+      </div>
+    </details>
+
+    <details>
+      <summary>How do you know any of it actually works?</summary>
+      <div class="answer">
+        <p>Two layers. 163 unit tests drive each detector with an injected clock. Then a 36-case efficacy harness runs real attack and benign scenarios through the same pipeline the live sensor uses and reports TP/FP/FN — currently 25 true positives, zero false positives, zero false negatives. Eleven of the 36 are benign scenarios that must produce nothing above INFO. And the harness fails any alert that fires <em>without</em> its rule's declared discriminating features, so a rule cannot pass by detecting the attack while emitting a useless message.</p>
+      </div>
+    </details>
+
+    <details>
+      <summary>What is your false-positive story?</summary>
+      <div class="answer">
+        <p>Three mechanisms. First, benign regression scenarios in the harness that must stay silent. Second, discriminators that make each rule specific rather than broad — brute force splits on measured rate, port scan on the handshake outcome. Third, and most important, rules that <em>state their uncertainty instead of hiding it</em>: the interactive-shell rule cannot distinguish a shell from legitimate SSH, so rather than tuning a threshold that does not exist, it drops to MEDIUM and says it could not confirm a login. That is a statement about evidence, not a verdict.</p>
+        <p>The known FP sources are named too: beaconing versus scheduled pollers, which the payload-size CV addresses; and any learned baseline, which is tagged as learned on every finding it produces.</p>
+      </div>
+    </details>
+
+    <details>
+      <summary>Nearly all C2 is TLS now. How do you detect anything?</summary>
+      <div class="answer">
+        <p>By not looking at payload. Four things survive encryption: direction, timing, volume, and fingerprint. Beaconing is detected from the coefficient of variation of inter-arrival gaps and the consistency of per-check-in byte counts — both measured without reading a single payload byte. An interactive shell is detected from packet <em>lengths</em> and turn-taking, not content. Direction inversion — a server initiating outbound — needs no payload at all.</p>
+        <p>And there is one cheap thing worth doing before any of that: check whether traffic on 443 actually <em>is</em> TLS. Three bytes at a fixed offset. Attackers pick 443 for the egress filter, and commodity tooling often does not bother wrapping the channel. What I do not cover is a careful operator using real TLS — that needs JA3/JA4, and I would say so rather than imply otherwise.</p>
+      </div>
+    </details>
+
+    <details>
+      <summary>Your model's accuracy is 96% — is that good?</summary>
+      <div class="answer">
+        <p>No, and accuracy is the wrong number to quote. BENIGN is about 80% of CIC-IDS2017, so predicting BENIGN always scores well. The honest figure is macro F1, which is 0.656 for the model the sensor actually serves. That means it is mediocre at distinguishing attack <em>types</em>. The full-flow reference model reaches 0.861, and the gap is exactly what it costs to collapse 78 flow statistics into 13 packet-derivable features.</p>
+        <p>I would also flag two things unprompted: the hold-out is in-distribution, same capture week, so it is an optimistic upper bound and not a generalisation estimate. And destination port is the top feature in both models, which is a real weakness of CIC-IDS — the model can score well by learning the lab's port assignments rather than attack behaviour.</p>
+      </div>
+    </details>
+
+    <details>
+      <summary>What can this system not detect?</summary>
+      <div class="answer">
+        <p>Execution, defense evasion and local privilege escalation — none of them produce packets, so a network sensor cannot see them regardless of rules. Persistence only in the narrow slice that opens a listening port. Anything inside a TLS session I cannot decrypt. Whether a login succeeded, because TCP completes for failed logins too. And anything on a host whose traffic never crosses the monitored segment.</p>
+        <p>That is why the host auth-log sensor exists — it is the only source that <em>knows</em> rather than infers, and it covers exactly the tactics the network sensor structurally cannot.</p>
+      </div>
+    </details>
+
+    <details>
+      <summary>Why correlate on source IP only? Isn't that naive?</summary>
+      <div class="answer">
+        <p>It is deliberate and I considered the alternatives. Adding destination as a key would split one attacker sweeping three hosts into three incidents, which is the opposite of what an incident is for — so destinations are recorded as evidence on the incident instead. The real subtlety is not the key, it is <em>attribution</em>: some detectors file under the victim rather than the attacker, and ARP spoofing's source IP is forged. So each rule declares its source semantics, and events that are unattributable get dropped rather than grouped under whoever the packet claimed to be.</p>
+        <p>The grouping key was never the reason the old engine looked random. The reason was that it had no time window at all and a catch-all rule of "three distinct alert types", which a single nmap run satisfies.</p>
+      </div>
+    </details>
+
+    <details>
+      <summary>What happens under a flood — does it fall over?</summary>
+      <div class="answer">
+        <p>Every stateful structure is explicitly bounded. Correlation tracks 4096 sources under LRU eviction and 500 events per incident with the overflow still counted. The reassembler caps at 1024 concurrent buffers, 128 fragments per datagram, 65535 bytes, 30-second timeout. Flow tables in the shell and TLS detectors cap at 8192 and evict oldest-first. The alert store holds 5000 records and evicts lowest-severity-oldest-first, so a critical survives until everything else is gone.</p>
+        <p>The design rule throughout: anything dropped is counted and reported — through <code>/status</code> or the retention audit log — rather than disappearing silently. A <code>--rand-source</code> flood degrades the sensor's memory of low-value events; it does not exhaust memory and it does not hide the critical alerts.</p>
+      </div>
+    </details>
+
+    <details>
+      <summary>How do you handle evasion?</summary>
+      <div class="answer">
+        <p>Concretely, for fragmentation: <code>nmap -f</code> evaded everything, because the flags byte and the ports land in different fragments and neither piece matches a signature. The fix reassembles before rule matching, so a fragmented scan normalises to the identical rule as an unfragmented one — and the alert is annotated that fragmentation was attempted, so the evasion stays visible.</p>
+        <p>Overlapping-fragment evasion is handled by tracking coverage as merged byte intervals rather than a fragment count, and by picking an explicit resolution policy (first-writer-wins, matching Linux) instead of dropping conflicted datagrams, which would itself be a bypass.</p>
+        <p>Rate-based evasion is covered by pairing every short window with a long one: a 5-second port-scan window plus a 30-minute low-and-slow rule; a fast brute-force rule plus a low-rate one over 900 seconds.</p>
+      </div>
+    </details>
+
+    <details>
+      <summary>Talk me through a bug you found and what you changed because of it.</summary>
+      <div class="answer">
+        <p>An alert message containing a Unicode arrow raised <code>UnicodeEncodeError</code> on a Windows cp1252 console — inside the packet capture thread. It killed the alert entirely, and returned a 500 on the API path. I had fixed the same class of bug once before, and it came back.</p>
+        <p>What made it recur is the interesting part: the first fix was "keep alert strings ASCII", which is a promise every future call site has to remember. The second fix put the encoding guarantee at the one place alerts are written out. That changed how I think about fixes generally — if a fix depends on everyone remembering a rule, it is not a fix, it is a note. Put the guarantee at the chokepoint.</p>
+      </div>
+    </details>
+
+    <details>
+      <summary>What would you build next, and why that?</summary>
+      <div class="answer">
+        <p>A per-host behavioural profile store — peers, ports, volume, direction ratio, active hours, TLS fingerprints. Nearly every remaining detection idea I have is phrased as "first time" or "unlike this host normally", and none of them are expressible without it. First-time peer on an admin port catches the single deliberate lateral hop that my fan-out threshold of six structurally cannot. A ratio flip catches the host that quietly turns from downloader to uploader, which my absolute 50 MB threshold both misses and false-positives on. Slow-drip exfiltration needs cumulative per-day accounting that a 300-second window cannot express at any threshold.</p>
+        <p>It also solves alert fatigue as a side effect: deviation from a host's own baseline is a natural ranking signal, so I could order alerts instead of suppressing them. One component, two problems.</p>
+      </div>
+    </details>
+
+    <details>
+      <summary>What's the weakest part of this project?</summary>
+      <div class="answer">
+        <p>Ten rules have IDs and discriminators but their detection logic predates the rebuild and the harness does not exercise it — distributed scan, slow scan, ARP, DNS tunnel, exfil, staging, IMDS, lateral, breach. I know they are the untested set and I would not describe coverage as complete without saying so.</p>
+        <p>Second: <code>main.py</code> is still 2257 lines and holds detectors that ought to live in the package. The migration is real but incomplete, and the tell is that those are precisely the untested ten.</p>
+        <p>Third: the ML side is honest but under-integrated — a multiclass model is trained and evaluated, and the live sensor still serves a binary verdict.</p>
+      </div>
+    </details>
+  </div>
+</section>
+
+<footer>
+  <p>Verified against the working tree at commit <code>a0a6e94</code>. Figures re-measured, not quoted: 38 catalogued rules, 163 unit tests, 36/36 efficacy cases (TP 25 / FP 0 / FN 0) under <code>venv\Scripts\python.exe</code>. Model metrics read from <code>models/cicids_live_meta.json</code> and <code>models/cicids_flow_meta.json</code>.</p>
+</footer>
+
+</main>
+</div>
+</div>
