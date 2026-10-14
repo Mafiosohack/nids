@@ -43,6 +43,7 @@ from .retention import AlertStore
 from .rules import RULES, TIER_CORRELATION, TIER_EXPLOIT_2, severity_rank
 from .scan_rules import BruteForceDetector, PortScanDetector, signature_finding
 from .tls_shape import DEFAULT_TLS_PORTS, TLSPortInspector
+from .triage import TRIAGE_FALSE_POSITIVE, TRIAGE_NEW, SuppressionList
 
 FIN, SYN, RST, PSH, ACK, URG = 0x01, 0x02, 0x04, 0x08, 0x10, 0x20
 
@@ -112,6 +113,8 @@ class DetectionPipeline:
         self.alerts = AlertStore(capacity=self.cfg.alert_capacity,
                                  dedup_window_sec=self.cfg.dedup_window_sec,
                                  clock=clock)
+        # Analyst-declared noise: (rule_id, source) pairs. See detection/triage.py.
+        self.suppressions = SuppressionList(clock=clock)
         self.port_scan = PortScanDetector(
             port_threshold=self.cfg.scan_port_threshold,
             window_sec=self.cfg.scan_window_sec, clock=clock)
@@ -299,7 +302,24 @@ class DetectionPipeline:
             "kill_chain_stage": finding.stage,
             "mitre_tactic":     finding.tactic,
             "mitre_technique":  finding.technique,
+            "triage_status":    TRIAGE_NEW,
         }
+
+        # Analyst suppression: stored and auditable, but born triaged, and kept
+        # out of correlation. Correlation-tier alerts are derived and never
+        # suppressed directly — suppress the member rule instead.
+        suppression = None
+        if rule is None or rule.tier != TIER_CORRELATION:
+            suppression = self.suppressions.match(finding.rule_id, finding.src)
+        if suppression is not None:
+            alert["triage_status"] = TRIAGE_FALSE_POSITIVE
+            alert["triage_by"] = f"suppression #{suppression['id']}"
+            alert["triage_at"] = now
+            alert["triage_note"] = (
+                f"auto: {finding.rule_id} from {finding.src} suppressed by "
+                f"{suppression['created_by']}"
+                + (f" ({suppression['note']})" if suppression["note"] else ""))
+            details["suppressed_by"] = f"suppression #{suppression['id']}"
 
         result = self.alerts.add(alert, ts=now)
         if not result.stored:
@@ -313,7 +333,8 @@ class DetectionPipeline:
         if self.on_alert is not None:
             self.on_alert(alert)
 
-        self._correlate(alert, finding, rule, now)
+        if suppression is None:
+            self._correlate(alert, finding, rule, now)
         return alert
 
     def next_alert_id(self) -> int:
@@ -345,10 +366,12 @@ class DetectionPipeline:
             title=alert["type"], message=finding.message,
             alert_id=alert["id"], details=finding.details,
         ))
-        if not res.emit_alert:
-            return
+        if res.emit_alert:
+            self._publish_incident(res.incident, res.reason, now)
+        if res.intrusion_confirmed:
+            self._publish_intrusion(res.incident, now)
 
-        inc = res.incident
+    def _publish_incident(self, inc: dict, reason: str, now: float) -> None:
         self.incidents_opened.append(inc)
         stages = [s["label"] for s in inc["stages"]]
         self.publish(Finding(
@@ -365,7 +388,26 @@ class DetectionPipeline:
                 "event_count":    inc["event_count"],
                 "window_seconds": self.cfg.correlation_window_sec,
                 "destinations":   list(inc["destinations"]),
-                "promotion_reason": res.reason,
+                "promotion_reason": reason,
+            },
+        ))
+
+    def _publish_intrusion(self, inc: dict, now: float) -> None:
+        """The incident now holds initial access plus a post-access stage."""
+        stages = [s["label"] for s in inc["stages"]]
+        self.publish(Finding(
+            rule_id="ACTIVE_INTRUSION", src=inc["source"], dst=None,
+            protocol="Multiple", ts=now, severity_override="critical",
+            message=(f"ACTIVE INTRUSION: {inc['source']} got in and kept going - "
+                     f"[{' -> '.join(stages)}] within one "
+                     f"{int(self.cfg.correlation_window_sec)}s window "
+                     f"(incident {inc['incident_id']})"),
+            details={
+                "incident_id":  inc["incident_id"],
+                "kill_chain":   [s["stage"] for s in inc["stages"]],
+                "stage_labels": stages,
+                "stage_count":  inc["stage_count"],
+                "destinations": list(inc["destinations"]),
             },
         ))
 

@@ -38,6 +38,14 @@ there exist two events e1, e2 with `ts(e1) <= ts(e2)` and
     intrusion is evidence, but on their own they are not a chain.
   * INFO-severity events never open one and never attach.
 
+**Active intrusion — the one escalation after opening.** An incident is
+confirmed as an active intrusion the first time it holds initial access AND any
+post-access stage (privilege escalation onward). That is a statement about one
+source inside one window, so it inherits the window, the actor attribution and
+the LRU cap. It replaces the old per-host `intrusion_tracker` in main.py, which
+answered the same question with no window at all — a login on Monday plus an
+unrelated alert on Friday read as a breach in progress.
+
 **Determinism under concurrency.** Ingest, evaluate and mutate happen in a single
 critical section, so the check-then-act race in the old engine is gone.
 Progression is computed over the buffer *sorted by event timestamp*, not by
@@ -65,6 +73,16 @@ DEFAULT_WINDOW_SEC = 600.0     # 10 min: two events further apart are not one in
 DEFAULT_MAX_SOURCES = 4096     # LRU cap; a --rand-source flood must not eat memory
 DEFAULT_MAX_EVENTS_PER_INCIDENT = 500
 MIN_PROMOTING_SEVERITY = "low"  # info-only events can never open an incident
+
+# Stages that only make sense once the attacker is already in. Initial access
+# plus any one of these is what "active intrusion" means.
+POST_ACCESS_STAGES = frozenset(KILL_CHAIN_ORDER[KILL_CHAIN_ORDER.index("initial_access") + 1:])
+
+
+def is_active_intrusion(stages) -> bool:
+    """Breach confirmed: got in, then did something only an insider can do."""
+    stages = set(stages)
+    return "initial_access" in stages and bool(stages & POST_ACCESS_STAGES)
 
 
 @dataclass(frozen=True)
@@ -102,6 +120,7 @@ class Incident:
     dropped_events: int = 0        # trimmed for the per-incident cap, still counted
     event_count: int = 0
     alert_emitted: bool = False
+    intrusion_confirmed: bool = False
 
     @property
     def ordered_stages(self) -> List[str]:
@@ -139,6 +158,7 @@ class Incident:
             "stored_events": len(self.events),
             "dropped_events": self.dropped_events,
             "stage_count":  len(self.stages),
+            "active_intrusion": self.intrusion_confirmed,
             "stages": [
                 {
                     "stage":    s,
@@ -166,14 +186,18 @@ class Incident:
 class IngestResult:
     """What the engine decided about one event.
 
-    `emit_alert` is True exactly once per incident (when it opens). The caller
-    raises the alert OUTSIDE the engine lock — the engine never calls back into
-    alerting, which is what made the old engine's re-entrancy hazardous.
+    `emit_alert` is True exactly once per incident (when it opens).
+    `intrusion_confirmed` is True exactly once per incident, on the event that
+    first made it an active intrusion (possibly the opening event itself). The
+    caller raises both alerts OUTSIDE the engine lock — the engine never calls
+    back into alerting, which is what made the old engine's re-entrancy
+    hazardous.
     """
     action: str                      # "ignored" | "buffered" | "opened" | "extended"
     incident: Optional[dict] = None  # snapshot, safe to hand to JSON
     emit_alert: bool = False
     reason: str = ""
+    intrusion_confirmed: bool = False
 
 
 class CorrelationEngine:
@@ -200,7 +224,8 @@ class CorrelationEngine:
         self._incidents: List[Incident] = []
         self._ids = itertools.count(1)
         self.stats = {"ingested": 0, "ignored": 0, "buffered": 0,
-                      "opened": 0, "extended": 0, "sources_evicted": 0}
+                      "opened": 0, "extended": 0, "sources_evicted": 0,
+                      "intrusions_confirmed": 0}
 
     # ── ingest ────────────────────────────────────────────────────────────────
     def ingest(self, event: CorrelationEvent) -> IngestResult:
@@ -226,8 +251,10 @@ class CorrelationEngine:
                 if now - incident.last_seen <= self.window_sec:
                     self._attach(incident, event)
                     self.stats["extended"] += 1
+                    confirmed = self._confirm_intrusion(incident)
                     return IngestResult("extended", incident.to_dict(now),
-                                        reason="within window of open incident")
+                                        reason="within window of open incident",
+                                        intrusion_confirmed=confirmed)
                 # too old: close it and fall through to a fresh evaluation
                 self._open.pop(actor, None)
 
@@ -246,14 +273,24 @@ class CorrelationEngine:
             incident = self._open_incident(actor, buf, now)
             self._buffers.pop(actor, None)
             self.stats["opened"] += 1
+            confirmed = self._confirm_intrusion(incident)
             lo, hi = progression
             return IngestResult(
                 "opened", incident.to_dict(now), emit_alert=True,
                 reason=(f"forward progression {lo} -> {hi} from {actor} "
                         f"within {int(self.window_sec)}s"),
+                intrusion_confirmed=confirmed,
             )
 
     # ── internals ─────────────────────────────────────────────────────────────
+    def _confirm_intrusion(self, inc: Incident) -> bool:
+        """Latch the active-intrusion flag. True only on the transition."""
+        if inc.intrusion_confirmed or not is_active_intrusion(inc.stages):
+            return False
+        inc.intrusion_confirmed = True
+        self.stats["intrusions_confirmed"] += 1
+        return True
+
     def _find_progression(self, buf: List[CorrelationEvent]):
         """Is there e1 before e2 with a strictly later kill-chain stage?
 
@@ -366,6 +403,8 @@ class CorrelationEngine:
                 **self.stats,
                 "incidents_total": len(self._incidents),
                 "incidents_open": len(self._open),
+                "active_intrusions": sum(1 for i in self._open.values()
+                                         if i.intrusion_confirmed),
                 "sources_buffered": len(self._buffers),
                 "window_seconds": self.window_sec,
             }

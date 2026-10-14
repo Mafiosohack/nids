@@ -21,6 +21,12 @@ pings become one record with `count: 200`. The window is a rolling one, so a
 sustained attack keeps extending a single record rather than starting new ones
 every few minutes.
 
+**Triage rides on the record.** Each record carries `triage_status` (see
+detection/triage.py). A repeat folded into a `resolved` record puts it back to
+`new`: the attack was closed and has started again, which the analyst needs to
+see. Repeats into `confirmed` or `false_positive` records leave the verdict
+alone — the analyst already looked at exactly this.
+
 **Nothing vanishes silently.** Every eviction and every collapse is written to
 an audit log (`eviction_log`, exposed on `/alerts/retention`), and counters
 survive the alert itself. If an alert is gone, the log says which rule it was,
@@ -33,6 +39,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Tuple
 
 from .rules import severity_rank
+from .triage import SETTABLE_STATUSES, TRIAGE_NEW, TRIAGE_RESOLVED
 
 # None = no TTL, keep until capacity pressure. Severity is lower-cased on lookup.
 DEFAULT_TTL_SEC: Dict[str, Optional[float]] = {
@@ -119,6 +126,13 @@ class AlertStore:
                 existing["timestamp"] = alert.get("timestamp", existing["timestamp"])
                 existing["message"] = alert.get("message", existing["message"])
                 existing["details"] = alert.get("details", existing["details"])
+                if existing.get("triage_status") == TRIAGE_RESOLVED:
+                    existing["triage_status"] = TRIAGE_NEW
+                    existing["triage_note"] = (
+                        f"recurred after being resolved by "
+                        f"{existing.get('triage_by') or 'an analyst'}")
+                    existing["triage_by"] = None
+                    existing["triage_at"] = now
                 self.stats["deduped"] += 1
                 self.stats["collapsed_alerts"] += 1
                 if existing["count"] in (2, 10, 100, 1000) or existing["count"] % 1000 == 0:
@@ -132,6 +146,9 @@ class AlertStore:
 
             record = dict(alert)
             record.setdefault("count", 1)
+            # A restored DB row carries an explicit None for never-triaged.
+            if not record.get("triage_status"):
+                record["triage_status"] = TRIAGE_NEW
             record["first_seen"] = now
             record["last_seen"] = now
             self._records.append(record)
@@ -215,15 +232,103 @@ class AlertStore:
             return self._expire(now)
 
     def list(self, limit: Optional[int] = None, severity: Optional[str] = None,
-             rule_id: Optional[str] = None) -> List[dict]:
+             rule_id: Optional[str] = None,
+             triage: Optional[str] = None) -> List[dict]:
         with self._lock:
             out = list(self._records)
+        if triage:
+            out = [r for r in out if r.get("triage_status") == triage]
         if severity:
             out = [r for r in out if (r.get("severity") or "").lower() == severity.lower()]
         if rule_id:
             out = [r for r in out
                    if (r.get("rule_id") or r.get("type")) == rule_id]
         return out[-limit:] if limit else out
+
+    def get(self, alert_id: int) -> Optional[dict]:
+        with self._lock:
+            for r in self._records:
+                if r.get("id") == alert_id:
+                    return dict(r)
+        return None
+
+    def set_triage(self, alert_ids, status: str, by: str, note: str = "",
+                   ts: Optional[float] = None) -> List[dict]:
+        """Record an analyst verdict on these records. Returns the ones updated.
+
+        Unknown ids are skipped, not an error: the store may have evicted a
+        record between the dashboard rendering it and the click.
+        """
+        if status not in SETTABLE_STATUSES:
+            raise ValueError(f"unknown triage status {status!r}")
+        now = self.clock() if ts is None else ts
+        wanted = set(alert_ids)
+        updated = []
+        with self._lock:
+            for r in self._records:
+                if r.get("id") in wanted:
+                    r["triage_status"] = status
+                    r["triage_by"] = by
+                    r["triage_at"] = now
+                    r["triage_note"] = note or ""
+                    updated.append(dict(r))
+        return updated
+
+    def verdicts_for(self, rule_id: Optional[str], src: Optional[str]) -> Dict[str, int]:
+        """How analysts have judged this rule from this source before.
+
+        The best evidence the sensor has for "is this one a false positive":
+        the same rule from the same host was already judged N times.
+        """
+        out: Dict[str, int] = {}
+        with self._lock:
+            for r in self._records:
+                if (r.get("rule_id") or r.get("type")) == rule_id and r.get("src") == src:
+                    st = r.get("triage_status") or TRIAGE_NEW
+                    out[st] = out.get(st, 0) + 1
+        return out
+
+    def summary(self, now: Optional[float] = None, rate_window: float = 60.0) -> dict:
+        """Counts over the WHOLE store, for the dashboard's stat cards.
+
+        The cards used to count the 200 records the dashboard happened to have
+        fetched, so a large scan pushed every CRITICAL out of the count.
+        """
+        now = self.clock() if now is None else now
+        by_sev: Dict[str, Dict[str, int]] = {}
+        by_triage: Dict[str, int] = {}
+        open_sources: Dict[str, int] = {}
+        new_last_min = 0
+        ml = 0
+        with self._lock:
+            records = list(self._records)
+        for r in records:
+            sev = (r.get("severity") or "info").lower()
+            st = r.get("triage_status") or TRIAGE_NEW
+            by_triage[st] = by_triage.get(st, 0) + 1
+            cell = by_sev.setdefault(sev, {"total": 0, "open": 0})
+            cell["total"] += 1
+            if st == TRIAGE_NEW:
+                cell["open"] += 1
+                if r.get("src") and severity_rank(sev) >= severity_rank("medium"):
+                    open_sources[r["src"]] = open_sources.get(r["src"], 0) + 1
+            if (r.get("rule_id") or r.get("type")) in ("ML_FLOW_ANOMALY", "ML Anomaly"):
+                ml += 1
+            if now - r.get("first_seen", 0) <= rate_window:
+                new_last_min += 1
+        return {
+            "records": len(records),
+            "alerts_represented": sum(r.get("count", 1) for r in records),
+            "by_severity": by_sev,
+            "by_triage": by_triage,
+            "open": by_triage.get(TRIAGE_NEW, 0),
+            # Every address with an open medium+ alert, busiest first. Not
+            # "attackers": for some rules the source is the victim.
+            "open_sources": [{"ip": ip, "open": n} for ip, n in
+                             sorted(open_sources.items(), key=lambda kv: (-kv[1], kv[0]))],
+            "ml_records": ml,
+            "new_records_last_min": new_last_min,
+        }
 
     def __len__(self) -> int:
         with self._lock:

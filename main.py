@@ -49,8 +49,10 @@ except ImportError:
 from detection.findings import Finding
 from detection.pipeline import DetectionPipeline, PipelineConfig
 from detection.reassembly import ScapyDefragmenter
+from detection.response import playbook as response_playbook
 from detection.rules import (EXTERNAL_SENSOR_STAGES, KILL_CHAIN_ORDER,
                              STAGE_LABELS, coverage_report, resolve_rule)
+from detection.triage import SETTABLE_STATUSES
 
 # ─────────────────────────────────────────────
 #  CONFIG  (tune these to your environment)
@@ -284,10 +286,15 @@ ROLES = {
         "delete_alerts",
         "control_sniffer",
         "manage_users",
+        "triage_alerts",
+        # Suppressing is tuning the sensor, not judging one alert: it silences
+        # a rule for a source from now on, so it stays with admins.
+        "manage_suppressions",
     ]),
     "analyst": frozenset([
         "view_alerts",
         "export_alerts",
+        "triage_alerts",
     ]),
     "viewer": frozenset([
         "view_alerts",
@@ -368,7 +375,23 @@ def init_db():
             print("[DB] Added alerts.rule_id column (existing rows keep NULL).")
         if "count" not in cols:
             conn.execute("ALTER TABLE alerts ADD COLUMN count INTEGER DEFAULT 1")
+        # Analyst triage (detection/triage.py). Existing rows stay NULL = "new".
+        for col, decl in (("triage_status", "TEXT"), ("triage_by", "TEXT"),
+                          ("triage_at", "REAL"), ("triage_note", "TEXT")):
+            if col not in cols:
+                conn.execute(f"ALTER TABLE alerts ADD COLUMN {col} {decl}")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_alerts_rule ON alerts(rule_id)")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS suppressions (
+                id         INTEGER PRIMARY KEY,
+                rule_id    TEXT NOT NULL,
+                src        TEXT NOT NULL,
+                created_by TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                note       TEXT,
+                UNIQUE (rule_id, src)
+            )
+        """)
 
         # Seed admin only if no users exist yet.
         count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
@@ -501,14 +524,49 @@ def db_insert_alert(alert: Dict):
         conn.execute(
             "INSERT OR REPLACE INTO alerts "
             "(id, rule_id, type, severity, src, dst, protocol, message, "
-            " timestamp, details, count, created_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            " timestamp, details, count, created_at, "
+            " triage_status, triage_by, triage_at, triage_note) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (alert["id"], alert.get("rule_id"), alert["type"], alert["severity"],
              alert.get("src"), alert.get("dst"), alert.get("protocol"),
              alert.get("message"), alert["timestamp"],
              json.dumps(alert.get("details", {})), alert.get("count", 1),
-             time.time()),
+             time.time(),
+             alert.get("triage_status"), alert.get("triage_by"),
+             alert.get("triage_at"), alert.get("triage_note")),
         )
+
+
+def db_update_triage(records: List[Dict]):
+    """Persist analyst verdicts so they survive a restart."""
+    with get_db() as conn:
+        conn.executemany(
+            "UPDATE alerts SET triage_status=?, triage_by=?, triage_at=?, "
+            "triage_note=? WHERE id=?",
+            [(r.get("triage_status"), r.get("triage_by"), r.get("triage_at"),
+              r.get("triage_note"), r["id"]) for r in records],
+        )
+
+
+def db_insert_suppression(rec: Dict):
+    with get_db() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO suppressions "
+            "(id, rule_id, src, created_by, created_at, note) VALUES (?,?,?,?,?,?)",
+            (rec["id"], rec["rule_id"], rec["src"], rec["created_by"],
+             rec["created_at"], rec.get("note", "")),
+        )
+
+
+def db_delete_suppression(suppression_id: int):
+    with get_db() as conn:
+        conn.execute("DELETE FROM suppressions WHERE id=?", (suppression_id,))
+
+
+def db_load_suppressions() -> List[Dict]:
+    with get_db() as conn:
+        return [dict(r) for r in
+                conn.execute("SELECT * FROM suppressions ORDER BY id").fetchall()]
 
 
 def db_load_recent_alerts(limit: int) -> List[Dict]:
@@ -805,12 +863,6 @@ def _profile_saver_worker():
         save_host_profiles()
 
 
-# ── Kill-chain / intrusion state (per host = suspected attacker or victim) ──
-# host → {"stages": {stage: {"first": ts, "last": ts, "count": n, "detail": str}},
-#         "first_seen": ts, "last_activity": ts}
-intrusion_tracker: Dict[str, dict] = {}
-intrusion_lock    = threading.Lock()
-
 system_stats = {
     "packets_captured": 0,
     "alerts_generated": 0,
@@ -827,9 +879,10 @@ sniffer_stop_event = threading.Event()
 # ─────────────────────────────────────────────
 #  MITRE ATT&CK MAPPING + KILL-CHAIN MODEL
 # ─────────────────────────────────────────────
-# KILL_CHAIN_ORDER and STAGE_LABELS are imported from detection/rules.py, which
-# is the single definition — the correlation engine keys its forward-progression
-# test off the same ordering, so a second copy here would be a latent bug.
+# Kill-chain state lives in ONE place: the correlation engine in
+# detection/correlation.py (windowed, per source, LRU-capped). main.py used to
+# keep a second, unwindowed per-host tracker that answered the same question
+# differently; it was removed, and "Active Intrusion" is now raised by the engine.
 #
 # Per-rule stage/tactic/technique now live on the Rule objects in the catalogue.
 # EXTERNAL_SENSOR_STAGES covers the host/cloud log sensors, whose alert types are
@@ -842,67 +895,6 @@ def _mitre_for(alert_type: str, rule_id: Optional[str] = None):
     if rule is not None and rule.stage:
         return (rule.stage, rule.tactic, rule.technique)
     return EXTERNAL_SENSOR_STAGES.get(alert_type, (None, None, None))
-
-
-def update_intrusion_state(alert_type: str, host: Optional[str], detail: str,
-                           rule_id: Optional[str] = None):
-    """Record that `host` reached the kill-chain stage implied by this alert.
-
-    `host` is the attacker/compromised endpoint we attribute the activity to
-    (the alert source). This is what powers the per-host Intrusion Status panel.
-    """
-    stage, _, _ = _mitre_for(alert_type, rule_id)
-    if not stage or not host:
-        return
-    now = time.time()
-    announce = False
-    stages_snapshot: List[str] = []
-    with intrusion_lock:
-        rec = intrusion_tracker.get(host)
-        if rec is None:
-            rec = {"stages": {}, "first_seen": now, "last_activity": now,
-                   "announced": False}
-            intrusion_tracker[host] = rec
-        rec["last_activity"] = now
-        st = rec["stages"].get(stage)
-        if st is None:
-            rec["stages"][stage] = {"first": now, "last": now, "count": 1, "detail": detail}
-        else:
-            st["last"] = now
-            st["count"] += 1
-            st["detail"] = detail
-        # Decide whether this host just became a full active intrusion.
-        if not rec["announced"] and intrusion_status(rec) == "ACTIVE INTRUSION":
-            rec["announced"] = True
-            announce = True
-            stages_snapshot = [s for s in KILL_CHAIN_ORDER if s in rec["stages"]]
-
-    # Fire the meta-alert OUTSIDE the lock (generate_alert re-enters this fn).
-    if announce:
-        chain = " -> ".join(STAGE_LABELS[s] for s in stages_snapshot)
-        generate_alert(
-            "Active Intrusion", "critical", host, None, "Multiple",
-            f"ACTIVE INTRUSION: {host} has progressed through the kill chain "
-            f"[{chain}] - attacker is confirmed inside and operating",
-            {"kill_chain": stages_snapshot, "stage_count": len(stages_snapshot)},
-            rule_id="ACTIVE_INTRUSION",
-        )
-
-
-def intrusion_status(rec: dict) -> str:
-    """Classify a host's kill-chain progress into a headline status."""
-    stages = set(rec["stages"].keys())
-    post_access = {"privilege_escalation", "persistence", "command_and_control",
-                   "lateral_movement", "collection", "exfiltration"}
-    if "initial_access" in stages and (stages & post_access):
-        return "ACTIVE INTRUSION"
-    if "initial_access" in stages:
-        return "BREACHED"
-    if "credential_access" in stages:
-        return "UNDER ATTACK"
-    if stages:
-        return "PROBING"
-    return "QUIET"
 
 
 # ─────────────────────────────────────────────
@@ -947,10 +939,6 @@ def _on_published_alert(alert: Dict) -> None:
 
     safe_print(f"[{alert['severity'].upper():8s}] "
                f"{alert.get('rule_id') or alert['type']} -> {alert['message']}")
-
-    # Advance the per-host kill-chain state (drives the Intrusion Status panel).
-    update_intrusion_state(alert["type"], alert.get("src"), alert["message"],
-                           rule_id=alert.get("rule_id"))
 
 
 _alert_id_lock = threading.Lock()
@@ -1993,57 +1981,6 @@ def status(session: dict = Depends(require_auth)):
     }
 
 
-# ── Intrusion / Kill-Chain Endpoint ───────────
-# Order used to rank hosts by how deep into the kill chain they are.
-_STATUS_RANK = {
-    "ACTIVE INTRUSION": 0,
-    "BREACHED":         1,
-    "UNDER ATTACK":     2,
-    "PROBING":          3,
-    "QUIET":            4,
-}
-
-
-@app.get("/intrusions", tags=["Alerts"])
-def get_intrusions(session: dict = Depends(require_permission("view_alerts"))):
-    """Per-host kill-chain progression — powers the Intrusion Status panel.
-
-    Answers the operator's real question: is this host just poking at us, or is
-    it INSIDE, moving laterally, and stealing data?
-    """
-    now = time.time()
-    out = []
-    with intrusion_lock:
-        for host, rec in intrusion_tracker.items():
-            status = intrusion_status(rec)
-            reached = []
-            for stage in KILL_CHAIN_ORDER:
-                if stage in rec["stages"]:
-                    st = rec["stages"][stage]
-                    reached.append({
-                        "stage":   stage,
-                        "label":   STAGE_LABELS[stage],
-                        "count":   st["count"],
-                        "detail":  st["detail"],
-                        "age_sec": round(now - st["last"], 1),
-                    })
-            out.append({
-                "host":            host,
-                "status":          status,
-                "stages_reached":  reached,
-                "stage_count":     len(reached),
-                "furthest_stage":  reached[-1]["label"] if reached else None,
-                "first_seen_sec":  round(now - rec["first_seen"], 1),
-                "last_activity_sec": round(now - rec["last_activity"], 1),
-            })
-    out.sort(key=lambda h: (_STATUS_RANK.get(h["status"], 9), -h["stage_count"]))
-    # Full stage catalogue so the UI can render the whole chain, filled or not.
-    return {
-        "chain": [{"stage": s, "label": STAGE_LABELS[s]} for s in KILL_CHAIN_ORDER],
-        "hosts": out,
-    }
-
-
 # ── Model Endpoint ────────────────────────────
 
 def _read_json(path: Path) -> Optional[dict]:
@@ -2117,14 +2054,176 @@ def get_alerts(
     severity:   Optional[str] = Query(None),
     alert_type: Optional[str] = Query(None),
     rule_id:    Optional[str] = Query(None),
+    triage:    Optional[str] = Query(None, description="new | confirmed | false_positive | resolved"),
     session: dict = Depends(require_permission("view_alerts")),
 ):
     """Alert records. Each carries `count`: repeated identical alerts are
-    collapsed into one record rather than stored individually."""
-    result = PIPELINE.alerts.list(severity=severity, rule_id=rule_id)
+    collapsed into one record rather than stored individually.
+    `triage=new` is the review queue."""
+    if triage and triage not in SETTABLE_STATUSES:
+        raise HTTPException(400, f"triage must be one of {sorted(SETTABLE_STATUSES)}")
+    result = PIPELINE.alerts.list(severity=severity, rule_id=rule_id, triage=triage)
     if alert_type:
         result = [a for a in result if a["type"].lower() == alert_type.lower()]
     return result[-limit:]
+
+
+@app.get("/alerts/summary", tags=["Alerts"])
+def alerts_summary(session: dict = Depends(require_permission("view_alerts"))):
+    """Counts over every stored record — what the stat cards show.
+
+    Computed here rather than in the browser because the dashboard only ever
+    holds the latest 200 records, and counting those under-reported anything
+    older than the most recent scan.
+    """
+    summary = PIPELINE.alerts.summary()
+    inc = PIPELINE.correlator.snapshot_stats()
+    open_incident_sources = sorted({i["source"] for i in
+                                    PIPELINE.correlator.incidents(limit=500)
+                                    if i.get("open")})
+    summary.update({
+        "incidents_total":  inc["incidents_total"],
+        "incidents_open":   inc["incidents_open"],
+        "active_intrusions": inc["active_intrusions"],
+        "open_incident_sources": open_incident_sources,
+        "suppressions":     len(PIPELINE.suppressions),
+    })
+    return summary
+
+
+class TriageRequest(BaseModel):
+    ids: List[int]
+    status: str
+    note: str = ""
+    # Also suppress future alerts of these rules from these sources. Admin only.
+    suppress: bool = False
+
+
+@app.post("/alerts/triage", tags=["Alerts"])
+def triage_alerts(req: TriageRequest,
+                  session: dict = Depends(require_permission("triage_alerts"))):
+    """Record a verdict on one or more alerts, taking them out of (or putting
+    them back into) the review queue."""
+    if req.status not in SETTABLE_STATUSES:
+        raise HTTPException(400, f"status must be one of {sorted(SETTABLE_STATUSES)}")
+    if not req.ids or len(req.ids) > 1000:
+        raise HTTPException(400, "ids must hold 1-1000 alert ids")
+    note = req.note.strip()[:500]
+    if req.suppress:
+        if req.status != "false_positive":
+            raise HTTPException(400, "only a false positive can be suppressed")
+        if "manage_suppressions" not in ROLES.get(session["role"], frozenset()):
+            raise HTTPException(403, "suppressing a rule requires an admin")
+
+    updated = PIPELINE.alerts.set_triage(req.ids, req.status, session["username"], note)
+    try:
+        db_update_triage(updated)
+    except Exception as e:
+        safe_print(f"[DB][WARN] Could not persist triage: {e}")
+
+    created = []
+    if req.suppress:
+        pairs = {(r.get("rule_id") or r.get("type"), r.get("src")) for r in updated}
+        for rule_id, src in sorted(p for p in pairs if p[0] and p[1]):
+            rule = resolve_rule(rule_id, None)
+            if rule is not None and rule.tier == "correlation":
+                continue   # derived alerts are not suppressible; see pipeline.publish
+            created.append(_add_suppression(rule_id, src, session["username"], note))
+
+    print(f"[TRIAGE] {session['username']} marked {len(updated)} alert(s) "
+          f"{req.status}" + (f", added {len(created)} suppression(s)" if created else ""))
+    return {"updated": len(updated), "ids": [r["id"] for r in updated],
+            "suppressions_created": created}
+
+
+@app.get("/alerts/{alert_id}/context", tags=["Alerts"])
+def alert_context(alert_id: int,
+                  session: dict = Depends(require_permission("view_alerts"))):
+    """Evidence for deciding true vs false positive, gathered in one place.
+
+    The sensor cannot make that call itself. What it can do is put in front of
+    the analyst what it knows: how this rule from this source was judged
+    before, whether the source is one of ours, whether it is part of an open
+    incident, and how long the sensor has known it.
+    """
+    rec = PIPELINE.alerts.get(alert_id)
+    if rec is None:
+        raise HTTPException(404, f"Alert {alert_id} is no longer in the live store.")
+    src = rec.get("src")
+    rule_id = rec.get("rule_id") or rec.get("type")
+    profile = PIPELINE.profiles.snapshot(src, top_peers=0) if src else None
+    suppression = next((s for s in PIPELINE.suppressions.list()
+                        if s["rule_id"] == rule_id and s["src"] == src), None)
+    return {
+        "alert_id":   alert_id,
+        "rule_id":    rule_id,
+        "src":        src,
+        "verdicts":   PIPELINE.alerts.verdicts_for(rule_id, src),
+        "src_internal":  bool(src) and is_internal(src),
+        "src_known_host": bool(src) and src in KNOWN_HOSTS,
+        "src_authorized_scanner": bool(src) and src in PIPELINE.cfg.authorized_scanners,
+        "src_profile": ({"state": profile["state"],
+                         "age_seconds": profile["age_seconds"],
+                         "connections": profile["connections"],
+                         "known_peers": profile["known_peers"]}
+                        if profile else None),
+        "open_incident": (PIPELINE.correlator.open_incident_for(src) if src else None),
+        "suppression": suppression,
+    }
+
+
+# ── Suppressions ──────────────────────────────
+
+class SuppressionRequest(BaseModel):
+    rule_id: str
+    src: str
+    note: str = ""
+
+
+def _add_suppression(rule_id: str, src: str, by: str, note: str) -> dict:
+    rec = PIPELINE.suppressions.add(rule_id, src, by, note)
+    try:
+        db_insert_suppression(rec)
+    except Exception as e:
+        safe_print(f"[DB][WARN] Could not persist suppression: {e}")
+    print(f"[TRIAGE] {by} suppressed {rule_id} from {src}")
+    return rec
+
+
+@app.get("/suppressions", tags=["Alerts"])
+def list_suppressions(session: dict = Depends(require_permission("view_alerts"))):
+    """Every (rule, source) pair an admin has declared noise. Visible to all
+    roles: a silenced detection must never be invisible."""
+    return {"suppressions": PIPELINE.suppressions.list()}
+
+
+@app.post("/suppressions", tags=["Alerts"])
+def create_suppression(req: SuppressionRequest,
+                       session: dict = Depends(require_permission("manage_suppressions"))):
+    rule = resolve_rule(req.rule_id, None)
+    if rule is not None and rule.tier == "correlation":
+        raise HTTPException(400, "correlation alerts are derived; suppress a member rule")
+    return _add_suppression(req.rule_id.strip()[:80], req.src.strip()[:64],
+                            session["username"], req.note.strip()[:500])
+
+
+@app.delete("/suppressions/{suppression_id}", tags=["Alerts"])
+def delete_suppression(suppression_id: int,
+                       session: dict = Depends(require_permission("manage_suppressions"))):
+    rec = PIPELINE.suppressions.remove(suppression_id)
+    if rec is None:
+        raise HTTPException(404, f"No suppression #{suppression_id}")
+    db_delete_suppression(suppression_id)
+    print(f"[TRIAGE] {session['username']} removed suppression #{suppression_id} "
+          f"({rec['rule_id']} from {rec['src']})")
+    return {"removed": rec}
+
+
+@app.get("/response/playbook", tags=["System"])
+def get_response_playbook(session: dict = Depends(require_auth)):
+    """Per-rule containment + verification steps and MITRE ATT&CK mitigations.
+    Static for the running build; the dashboard fetches it once."""
+    return response_playbook()
 
 
 @app.get("/alerts/retention", tags=["Alerts"])
@@ -2163,6 +2262,8 @@ def get_incidents(
     return {
         "incidents": PIPELINE.correlator.incidents(limit=limit),
         "stats":     PIPELINE.correlator.snapshot_stats(),
+        # Full stage catalogue, so the UI can draw the whole chain, reached or not.
+        "chain": [{"stage": s, "label": STAGE_LABELS[s]} for s in KILL_CHAIN_ORDER],
         "grouping": {
             "key":            "source IP",
             "window_seconds": CORRELATION_WINDOW_SEC,
@@ -2250,8 +2351,6 @@ def clear_alerts(session: dict = Depends(require_permission("delete_alerts"))):
         system_stats["alerts_generated"] = 0
     PIPELINE.reset()
     db_clear_alerts()
-    with intrusion_lock:
-        intrusion_tracker.clear()
     with pc_lock:
         _recent_pc_alerts.clear()
     with _alert_id_lock:
@@ -2391,6 +2490,18 @@ def on_startup():
                   f"({total} total on disk).")
     except Exception as e:
         print(f"[DB][WARN] Could not restore alerts: {e}")
+
+    # Analyst suppressions are decisions, so they persist across restarts.
+    try:
+        for s in db_load_suppressions():
+            PIPELINE.suppressions.add(s["rule_id"], s["src"], s["created_by"],
+                                      s.get("note") or "", suppression_id=s["id"],
+                                      created_at=s["created_at"])
+        if len(PIPELINE.suppressions):
+            print(f"[TRIAGE] {len(PIPELINE.suppressions)} suppression(s) active - "
+                  f"see GET /suppressions.")
+    except Exception as e:
+        print(f"[DB][WARN] Could not restore suppressions: {e}")
 
     if SENSOR_API_KEY == _DEFAULT_SENSOR_KEY:
         print("[NIDS][WARN] Using the PUBLIC default sensor key. Set NIDS_SENSOR_KEY "

@@ -406,10 +406,12 @@ _RULES: List[Rule] = [
 
     Rule("ACTIVE_INTRUSION", "Active Intrusion", "critical", TIER_CORRELATION,
          None, None, None,
-         "A host has reached initial access AND at least one post-access stage. "
-         "Distinct from CORRELATED_INCIDENT: that one groups alerts, this one is "
-         "the verdict that the attacker is inside and operating.",
-         discriminators=("kill_chain", "stage_count")),
+         "An open incident has reached initial access AND at least one "
+         "post-access stage, from one source inside one correlation window. "
+         "Raised once per incident by the correlation engine. Distinct from "
+         "CORRELATED_INCIDENT: that one groups alerts, this one is the verdict "
+         "that the attacker is inside and operating.",
+         discriminators=("incident_id", "kill_chain", "stage_count")),
 
     # ── ML sensor ────────────────────────────────────────────────────────────
     Rule("ML_FLOW_ANOMALY", "ML Anomaly", "medium", TIER_ML, None, None, None,

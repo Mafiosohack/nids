@@ -319,7 +319,13 @@ at `GET /alerts/retention`, so nothing disappears silently.
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /incidents` | correlated incidents + the grouping rules in force |
+| `GET /incidents` | correlated incidents (the one kill-chain engine) + the grouping rules in force |
+| `GET /alerts/summary` | stat-card counts over the whole store, by severity and triage status |
+| `GET /alerts?triage=new` | the review queue (`new` / `confirmed` / `false_positive` / `resolved`) |
+| `POST /alerts/triage` | analyst+: record a verdict on alert ids; admin may also suppress the (rule, source) pair |
+| `GET /alerts/{id}/context` | evidence for true-vs-false-positive: past verdicts, known host, profile, open incident |
+| `GET/POST/DELETE /suppressions` | (rule, source) pairs declared noise; still stored, kept out of queue and correlation |
+| `GET /response/playbook` | per-rule containment/verification steps + MITRE ATT&CK mitigations |
 | `GET /rules/coverage` | per-tier rule coverage and the scope limit |
 | `GET /alerts/retention` | retention policy, occupancy, eviction/collapse audit log |
 

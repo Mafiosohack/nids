@@ -1,8 +1,8 @@
 # Detection Coverage
 
 What this sensor detects, what it does not, and how confident each answer is.
-Generated live at `GET /rules/coverage` and rendered in the dashboard's **Rule
-Coverage** panel; this file is the narrative version.
+Generated live at `GET /rules/coverage` (no longer shown on the dashboard);
+this file is the narrative version.
 
 ---
 

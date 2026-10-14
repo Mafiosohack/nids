@@ -134,32 +134,55 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 .alert-count-badge{flex-shrink:0;font-family:var(--font-mono);font-size:10px;font-weight:600;background:var(--card3);border:1px solid var(--border2);color:var(--text);padding:2px 7px;border-radius:10px;align-self:flex-start;margin-top:2px}
 .no-alerts-msg{padding:32px;text-align:center;font-family:var(--font-mono);font-size:11px;color:var(--text-dim)}
 
-/* ── Correlated incidents + rule coverage ──────────────────────────────────
-   Reference surfaces, not alert surfaces. Deliberately low-arousal: no red
-   except where it states a real limit, so the alert list keeps its urgency. */
-.inc-row{border:1px solid var(--border);border-left:3px solid var(--amber);border-radius:6px;padding:10px 12px;margin-bottom:8px;background:var(--card2)}
-.inc-row.sev-critical{border-left-color:var(--red)}
-.inc-row.sev-high{border-left-color:var(--amber)}
-.inc-head{display:flex;flex-wrap:wrap;gap:10px;align-items:baseline;font-family:var(--font-mono);font-size:11px}
-.inc-id{font-weight:700;color:var(--text)}
-.inc-src{color:var(--text)}
-.inc-dim{color:var(--text-dim)}
-.inc-chain{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:7px}
-.inc-stage{font-family:var(--font-mono);font-size:10px;padding:2px 7px;border-radius:10px;background:var(--card3);border:1px solid var(--border2);color:var(--text)}
-.inc-arrow{color:var(--text-dim);font-size:10px}
-.inc-rules{margin-top:6px;font-family:var(--font-mono);font-size:10px;color:var(--text-dim);word-break:break-word}
+/* ── Kill chain panel ──────────────────────────────────────────────────────
+   A reference surface, not an alert surface: restrained by default. Red is
+   spent only on an open active intrusion, so it keeps meaning something. */
+.ipq-strip{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:12px}
+.ipq-none{font-family:var(--font-mono);font-size:11px;color:var(--text-dim)}
+.ipq-lbl{font-family:var(--font-mono);font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim);margin-right:2px}
+.ipq-chip{font-family:var(--font-code);font-size:12px;padding:3px 9px;border-radius:4px;border:1px solid var(--border2);background:var(--card2);color:var(--text-bright);cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+.ipq-chip:hover{border-color:var(--blue)}
+.ipq-chip:focus-visible,.q-tab:focus-visible,.q-filter:focus-visible,.kc-row:focus-visible{outline:2px solid var(--blue);outline-offset:1px}
+.ipq-chip.on{border-color:var(--blue);background:var(--blue-dim)}
+.ipq-chip .ipq-n{font-family:var(--font-mono);font-size:10px;color:var(--text-dim)}
+.ipq-chip.inc-critical{border-left:3px solid var(--red)}
+.ipq-chip.inc-high{border-left:3px solid var(--amber)}
+.ipq-chip.inc-medium{border-left:3px solid #eab308}
 
-.cov-scope{font-size:11px;line-height:1.55;color:var(--text-dim);border:1px solid var(--border2);border-left:3px solid var(--slate);border-radius:6px;padding:9px 12px;margin-bottom:12px;background:var(--card2)}
-.cov-tier{margin-bottom:14px}
-.cov-tier-head{display:flex;flex-wrap:wrap;gap:8px;align-items:baseline;margin-bottom:5px}
-.cov-tier-name{font-family:var(--font-mono);font-size:11px;font-weight:700;color:var(--text)}
-.cov-badge{font-family:var(--font-mono);font-size:9px;letter-spacing:.04em;padding:2px 7px;border-radius:9px;text-transform:uppercase}
-.cov-badge.broad{background:var(--green-dim);color:var(--green);border:1px solid var(--green)}
-.cov-badge.narrow{background:var(--amber-dim);color:var(--amber);border:1px solid var(--amber)}
-.cov-note{font-size:11px;line-height:1.5;color:var(--text-dim);margin-bottom:6px}
-.cov-rules{display:flex;flex-wrap:wrap;gap:5px}
-.cov-rule{font-family:var(--font-mono);font-size:10px;padding:2px 7px;border-radius:4px;background:var(--card3);border:1px solid var(--border);color:var(--text)}
-.cov-rule.gen{border-color:var(--green);color:var(--green)}
+.kc-row{display:grid;grid-template-columns:minmax(150px,190px) 1fr auto;gap:14px;align-items:center;border:1px solid var(--border);border-left:3px solid var(--border2);border-radius:6px;padding:10px 12px;margin-bottom:8px;background:var(--card2);cursor:pointer}
+.kc-row:hover{border-color:var(--border2)}
+.kc-row.sev-critical{border-left-color:var(--red)}
+.kc-row.sev-high{border-left-color:var(--amber)}
+.kc-row.sev-medium{border-left-color:#eab308}
+.kc-row.closed{opacity:.6}
+.kc-row.intrusion{border-color:var(--red);background:var(--red-dim)}
+.kc-ip{font-family:var(--font-code);font-size:14px;font-weight:700;color:var(--text-bright)}
+.kc-sub{display:block;font-family:var(--font-mono);font-size:10px;font-weight:400;color:var(--text-dim);margin-top:2px}
+.kc-badges{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.kc-badge{font-family:var(--font-mono);font-size:9px;font-weight:600;letter-spacing:.8px;padding:2px 7px;border-radius:3px;text-transform:uppercase;border:1px solid var(--border2);color:var(--text-dim);background:var(--card)}
+.kc-badge.intr{background:var(--red);border-color:var(--red);color:#fff}
+.kc-chain{display:flex;align-items:center;flex-wrap:wrap;row-gap:6px}
+.kc-step{display:flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:10px;color:var(--text-muted)}
+.kc-dot{width:9px;height:9px;border-radius:50%;background:var(--card3);border:1px solid var(--border2);flex-shrink:0}
+.kc-step.on{color:var(--text-bright);font-weight:600}
+.kc-step.on .kc-dot{background:var(--text-bright);border-color:var(--text-bright)}
+.kc-row.sev-critical .kc-step.on .kc-dot{background:var(--red);border-color:var(--red)}
+.kc-row.sev-high .kc-step.on .kc-dot{background:var(--amber);border-color:var(--amber)}
+.kc-arrow{width:12px;height:1px;background:var(--border2);margin:0 4px}
+.kc-dests{font-family:var(--font-mono);font-size:10px;color:var(--text-dim);margin-top:5px}
+.kc-more{font-family:var(--font-mono);font-size:10px;color:var(--text-dim);padding:4px 2px}
+@media(max-width:1000px){.kc-row{grid-template-columns:1fr}.kc-badges{justify-content:flex-start}}
+
+/* ── Alert queue tabs ── */
+.q-bar{display:flex;align-items:center;gap:8px;padding:8px 10px 0;flex-wrap:wrap}
+.q-tabs{display:flex;gap:2px;flex-wrap:wrap}
+.q-tab{font-family:var(--font-mono);font-size:10px;letter-spacing:.4px;padding:5px 9px;border-radius:4px;border:1px solid transparent;background:transparent;color:var(--text-dim);cursor:pointer}
+.q-tab:hover{background:var(--card2)}
+.q-tab.on{background:var(--card2);border-color:var(--border2);color:var(--text-bright);font-weight:600}
+.q-n{font-weight:600;color:var(--text)}
+.q-filter{margin-left:auto;font-family:var(--font-code);font-size:11px;padding:3px 9px;border-radius:4px;border:1px solid var(--blue);background:var(--blue-dim);color:var(--blue);cursor:pointer}
+.q-filter.hidden{display:none}
+.alert-triage{font-family:var(--font-mono);font-size:9px;color:var(--text-dim);margin-top:2px}
 
 /* ── IP / PORT LISTS ── */
 .ip-list,.port-list{display:flex;flex-direction:column;gap:4px}
@@ -284,40 +307,46 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
 
-/* ── Intrusion Status / Kill-Chain panel ── */
-.intrusion-panel{margin-bottom:14px;border-color:#3a1520}
-.intrusion-panel .panel-header{border-bottom-color:#3a1520}
-.ki-summary{display:flex;gap:8px;align-items:center;font-family:var(--font-mono);font-size:11px}
-.ki-summary .ki-count{font-weight:700}
-.intrusion-list{display:flex;flex-direction:column;gap:8px;max-height:340px;overflow-y:auto;padding:4px}
-.ki-empty{text-align:center;color:var(--text-dim);padding:22px;font-size:12px}
-.ki-empty .ki-ok{color:var(--green);font-size:13px;font-weight:600;letter-spacing:.5px}
-.ki-row{display:grid;grid-template-columns:170px 150px 1fr;gap:12px;align-items:center;
-  padding:10px 12px;background:#141a24;border:1px solid #26303f;border-left-width:4px;border-radius:8px}
-.ki-row.st-active{border-color:#ef4444;background:#1d1417}
-.ki-row.st-breach{border-color:#f97316;background:#1d1712}
-.ki-row.st-attack{border-color:#f59e0b;background:#1c1a12}
-.ki-host{font-family:var(--font-mono);font-size:13px;font-weight:700;color:#f1f5f9}
-.ki-host .ki-sub{display:block;font-size:9px;font-weight:400;color:#8b99ad;margin-top:2px}
-.ki-reached{font-family:var(--font-mono);font-size:9px;color:#9aa7ba;margin-top:5px}
-.ki-badge{font-family:var(--font-mono);font-size:10px;font-weight:700;letter-spacing:.5px;
-  padding:5px 8px;border-radius:5px;text-align:center;white-space:nowrap}
-.ki-badge.st-active{background:rgba(239,68,68,.25);color:#fee2e2;border:1px solid #ef4444;animation:kipulse 1.6s ease-in-out infinite}
-.ki-badge.st-breach{background:rgba(249,115,22,.22);color:#ffedd5;border:1px solid #f97316}
-.ki-badge.st-attack{background:rgba(245,158,11,.20);color:#fef3c7;border:1px solid #f59e0b}
-.ki-badge.st-probe{background:rgba(59,130,246,.20);color:#dbeafe;border:1px solid #3b82f6}
-@keyframes kipulse{0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,.5)}50%{box-shadow:0 0 0 4px rgba(239,68,68,0)}}
-.ki-chain{display:flex;align-items:center;gap:0;flex-wrap:wrap}
-.ki-step{display:flex;align-items:center;gap:4px;font-family:var(--font-mono);font-size:9px}
-.ki-dot{width:9px;height:9px;border-radius:50%;background:#2a3444;border:1px solid #3a4658;flex-shrink:0}
-.ki-step.on .ki-dot{background:#ef4444;border-color:#ef4444;box-shadow:0 0 6px rgba(239,68,68,.6)}
-.ki-step .ki-label{color:#3a4658;max-width:0;overflow:hidden;transition:none}
-.ki-step.on .ki-label{color:#cbd5e1}
-.ki-arrow{width:14px;height:1px;background:#2a3444;margin:0 2px}
-.ki-step.on + .ki-arrow{background:#ef4444}
-@media(max-width:1000px){.ki-row{grid-template-columns:1fr 1fr;gap:8px}.ki-chain{grid-column:1/-1}}
+/* ── Modal: evidence, MITRE, triage ── */
+.m-evidence{list-style:none;display:flex;flex-direction:column;gap:5px}
+.m-evidence li{font-size:12px;color:var(--text);padding:6px 10px;background:var(--card2);border:1px solid var(--border);border-radius:4px}
+.m-evidence li.ev-for{border-left:3px solid var(--green)}
+.m-evidence li.ev-against{border-left:3px solid var(--red)}
+.m-evidence li.ev-dim{color:var(--text-dim)}
+.m-mitre{display:flex;flex-direction:column;gap:6px}
+.m-mit{display:grid;grid-template-columns:150px 1fr;gap:10px;padding:8px 10px;background:var(--card2);border:1px solid var(--border);border-radius:4px;font-size:12px}
+.m-mit a{font-family:var(--font-mono);font-size:11px;color:var(--blue);text-decoration:none}
+.m-mit a:hover{text-decoration:underline}
+.m-mit-name{display:block;font-size:10px;color:var(--text-dim);font-family:var(--font-mono)}
+.m-mit-none{font-size:12px;color:var(--text-dim);padding:8px 10px;border:1px dashed var(--border2);border-radius:4px}
+.m-info-val a{color:var(--blue);text-decoration:none}
+.m-tri-scope{text-transform:none;letter-spacing:0;color:var(--text-dim)}
+.m-tri-state{font-family:var(--font-mono);font-size:11px;color:var(--text);margin-bottom:10px}
+.m-tri-lbl{display:block;font-family:var(--font-mono);font-size:9px;letter-spacing:1px;color:var(--text-dim);text-transform:uppercase;margin-bottom:4px}
+.m-tri-note{width:100%;background:var(--card2);border:1px solid var(--border2);border-radius:4px;padding:8px 10px;font-family:var(--font-mono);font-size:12px;color:var(--text-bright);outline:none;margin-bottom:8px}
+.m-tri-note:focus{border-color:var(--blue)}
+.m-tri-supp{display:flex;gap:8px;align-items:flex-start;font-size:11px;color:var(--text);margin-bottom:10px;line-height:1.5}
+.m-tri-supp code{font-family:var(--font-code);font-size:11px}
+.m-tri-btns{display:flex;gap:8px;flex-wrap:wrap}
+@media(max-width:700px){.m-info-grid{grid-template-columns:1fr 1fr}.m-mit{grid-template-columns:1fr}}
+
+/* ── Exploitation popup ──
+   Urgency register on purpose, and only here. Static (no pulse): the card
+   appearing is the signal; motion after that would be noise. */
+.xp-stack{position:fixed;top:66px;left:50%;transform:translateX(-50%);z-index:900;display:flex;flex-direction:column;gap:10px;width:min(560px,calc(100vw - 32px));pointer-events:none}
+.xp-card{pointer-events:auto;background:var(--card);border:2px solid var(--red);border-radius:8px;box-shadow:0 10px 40px rgba(15,23,42,.35);overflow:hidden;animation:xpin .18s ease-out}
+@keyframes xpin{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.xp-card{animation:none}}
+.xp-head{background:var(--red);color:#fff;padding:9px 14px;font-family:var(--font-mono);font-size:12px;font-weight:700;letter-spacing:1.2px;display:flex;justify-content:space-between;gap:10px}
+.xp-head span:last-child{font-weight:400;letter-spacing:0}
+.xp-body{padding:12px 14px;display:flex;flex-direction:column;gap:6px}
+.xp-title{font-size:14px;font-weight:600;color:var(--text-bright)}
+.xp-route{font-family:var(--font-code);font-size:12px;color:var(--text)}
+.xp-tech{font-family:var(--font-mono);font-size:11px;color:var(--text-dim)}
+.xp-more{font-family:var(--font-mono);font-size:11px;color:var(--text);border-top:1px solid var(--border);padding-top:6px}
+.xp-btns{display:flex;flex-wrap:wrap;gap:8px;padding:0 14px 12px}
 @media(max-width:1200px){.stat-grid{grid-template-columns:repeat(4,1fr)}.row-2col{grid-template-columns:1fr}.row-3col{grid-template-columns:1fr 1fr}.row-a{grid-template-columns:1fr}}
-@media(max-width:768px){.stat-grid{grid-template-columns:repeat(2,1fr)}.row-3col{grid-template-columns:1fr}.topbar-center{display:none}}
+@media(max-width:768px){.stat-grid{grid-template-columns:repeat(2,1fr)}.row-3col{grid-template-columns:1fr}.topbar-center{display:none}.topbar{padding:0 16px}.logo-sub,.api-chip,#session-user{display:none}}
 </style>
 </head>
 <body>
@@ -390,61 +419,31 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 
   <!-- STAT GRID -->
   <div class="stat-grid">
+    <!-- Every count below comes from /alerts/summary, i.e. the WHOLE store —
+         not the 200 records this page happens to hold. "Open" = still in the
+         review queue (triage status "new"). -->
     <div class="stat-card sc-blue"><div class="stat-label">Packets Captured</div><div class="stat-value v-blue" id="s-packets">0</div><div class="stat-sub" id="s-pps">0 pkt/s avg</div></div>
-    <div class="stat-card sc-teal"><div class="stat-label">Alerts Total</div><div class="stat-value v-teal" id="s-alerts">0</div><div class="stat-sub" id="s-stored">0 stored</div></div>
-    <div class="stat-card sc-red"><div class="stat-label">Critical</div><div class="stat-value v-red" id="s-critical">0</div><div class="stat-sub">severity: critical</div></div>
-    <div class="stat-card sc-amber"><div class="stat-label">High Severity</div><div class="stat-value v-amber" id="s-high">0</div><div class="stat-sub">severity: high</div></div>
-    <div class="stat-card sc-purple"><div class="stat-label">Scans Detected</div><div class="stat-value v-purple" id="s-scans">0</div><div class="stat-sub">port/stealth scans</div></div>
-    <div class="stat-card sc-blue"><div class="stat-label">ML Detections</div><div class="stat-value v-blue" id="s-ml">0</div><div class="stat-sub" id="s-ml-status">model: checking</div></div>
-    <div class="stat-card sc-teal"><div class="stat-label">Unique Attackers</div><div class="stat-value v-teal" id="s-unique-ips">0</div><div class="stat-sub">source IPs</div></div>
-    <div class="stat-card sc-green"><div class="stat-label">Alert Rate</div><div class="stat-value v-green sm" id="s-alert-rate">0/min</div><div class="stat-sub" id="s-det-rate">det. rate: 0%</div></div>
+    <div class="stat-card sc-teal"><div class="stat-label">Needs Review</div><div class="stat-value v-teal" id="s-open">0</div><div class="stat-sub" id="s-stored">0 stored</div></div>
+    <div class="stat-card sc-red"><div class="stat-label">Critical · Open</div><div class="stat-value v-red" id="s-critical">0</div><div class="stat-sub" id="s-critical-sub">0 in total</div></div>
+    <div class="stat-card sc-amber"><div class="stat-label">High · Open</div><div class="stat-value v-amber" id="s-high">0</div><div class="stat-sub" id="s-high-sub">0 in total</div></div>
+    <div class="stat-card sc-purple"><div class="stat-label">Open Incidents</div><div class="stat-value v-purple" id="s-incidents">0</div><div class="stat-sub" id="s-incidents-sub">0 active intrusions</div></div>
+    <div class="stat-card sc-teal"><div class="stat-label">IPs in Question</div><div class="stat-value v-teal" id="s-ips">0</div><div class="stat-sub">open alerts, medium+</div></div>
+    <div class="stat-card sc-blue"><div class="stat-label">ML Detections</div><div class="stat-value v-blue" id="s-ml">0</div><div class="stat-sub" id="s-ml-status">records from the model</div></div>
+    <div class="stat-card sc-green"><div class="stat-label">New Alerts</div><div class="stat-value v-green sm" id="s-alert-rate">0/min</div><div class="stat-sub" id="s-rate-sub">last 60 s, after dedup</div></div>
   </div>
 
-  <!-- INTRUSION STATUS / KILL CHAIN -->
-  <div class="panel intrusion-panel">
-    <div class="panel-header">
-      <span class="panel-title">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.5"><path d="M12 2 4 6v6c0 5 3.4 8.5 8 10 4.6-1.5 8-5 8-10V6z"/><path d="m9 12 2 2 4-4"/></svg>
-        Intrusion Status — Kill Chain
-      </span>
-      <div class="ki-summary">
-        <span class="ki-count" id="ki-active" style="color:var(--red)">0</span> active
-        <span style="color:var(--border)">|</span>
-        <span class="ki-count" id="ki-breach" style="color:#f97316">0</span> breached
-        <span style="color:var(--border)">|</span>
-        <span class="ki-count" id="ki-tracked" style="color:var(--text-dim)">0</span> tracked
-      </div>
-    </div>
-    <div class="panel-body">
-      <div class="intrusion-list" id="intrusion-list">
-        <div class="ki-empty"><span class="ki-ok">◇ NO INTRUSIONS DETECTED</span><br>No host has breached defenses. Recon/attempts appear here as they escalate.</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- CORRELATED INCIDENTS -->
+  <!-- KILL CHAIN: one view, one engine. Rows come from /incidents (the
+       correlation engine), the IP strip from /alerts/summary. -->
   <div class="panel">
     <div class="panel-header">
-      <span class="panel-title">Correlated Incidents</span>
-      <span class="panel-meta" id="inc-meta">grouped by source IP</span>
+      <span class="panel-title">Kill Chain — IPs in Question</span>
+      <span class="panel-meta" id="inc-meta">—</span>
     </div>
     <div class="panel-body">
+      <div class="ipq-strip" id="ipq-strip"><span class="ipq-none">No IPs in question. Every open alert has been reviewed.</span></div>
       <div id="incident-list">
-        <div class="no-alerts-msg">No correlated incidents.</div>
+        <div class="no-alerts-msg">No incidents. Alerts group into one only when a source advances forward through the kill chain.</div>
       </div>
-      <div class="cov-note" id="inc-rule" style="margin-top:10px"></div>
-    </div>
-  </div>
-
-  <!-- RULE COVERAGE -->
-  <div class="panel">
-    <div class="panel-header">
-      <span class="panel-title">Rule Coverage</span>
-      <span class="panel-meta" id="cov-total">—</span>
-    </div>
-    <div class="panel-body">
-      <div class="cov-scope" id="cov-scope"></div>
-      <div id="cov-tiers"></div>
     </div>
   </div>
 
@@ -464,9 +463,19 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
       <div class="panel-header">
         <span class="panel-title">
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-          Live Alerts
+          Alert Queue
         </span>
         <div class="live-badge"><div class="pulse-dot red"></div> LIVE</div>
+      </div>
+      <div class="q-bar">
+        <div class="q-tabs" role="tablist" aria-label="Triage status">
+          <button class="q-tab on" role="tab" aria-selected="true" data-tab="new" onclick="setQueueTab('new')">Needs review <span class="q-n" id="qn-new">0</span></button>
+          <button class="q-tab" role="tab" aria-selected="false" data-tab="confirmed" onclick="setQueueTab('confirmed')">Confirmed <span class="q-n" id="qn-confirmed">0</span></button>
+          <button class="q-tab" role="tab" aria-selected="false" data-tab="false_positive" onclick="setQueueTab('false_positive')">False positive <span class="q-n" id="qn-false_positive">0</span></button>
+          <button class="q-tab" role="tab" aria-selected="false" data-tab="resolved" onclick="setQueueTab('resolved')">Resolved <span class="q-n" id="qn-resolved">0</span></button>
+          <button class="q-tab" role="tab" aria-selected="false" data-tab="all" onclick="setQueueTab('all')">All</button>
+        </div>
+        <button class="q-filter hidden" id="q-filter" onclick="setIpFilter(null)" title="Clear the IP filter"></button>
       </div>
       <div class="panel-body" style="padding:8px"><div class="alerts-container" id="alerts-list"><div class="no-alerts-msg">Authenticating…</div></div></div>
     </div>
@@ -597,25 +606,61 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
           <div class="m-info-cell"><div class="m-info-lbl">Source IP</div><div class="m-info-val" id="m-src">—</div></div>
           <div class="m-info-cell"><div class="m-info-lbl">Destination</div><div class="m-info-val" id="m-dst">—</div></div>
           <div class="m-info-cell"><div class="m-info-lbl">Protocol</div><div class="m-info-val" id="m-proto">—</div></div>
+          <div class="m-info-cell"><div class="m-info-lbl">Rule</div><div class="m-info-val" id="m-rule">—</div></div>
+          <div class="m-info-cell"><div class="m-info-lbl">Kill-chain stage</div><div class="m-info-val" id="m-stage">—</div></div>
+          <div class="m-info-cell"><div class="m-info-lbl">MITRE technique</div><div class="m-info-val" id="m-tech">—</div></div>
         </div>
       </div>
       <div><div class="m-section-title">Message</div><div class="m-msg-box" id="m-msg">—</div></div>
+
+      <!-- Triage first after the facts: deciding true vs false positive is the
+           question this dialog exists to answer. -->
+      <div id="m-evidence-wrap">
+        <div class="m-section-title">Evidence — true or false positive?</div>
+        <ul class="m-evidence" id="m-evidence"><li class="ev-dim">Loading…</li></ul>
+      </div>
+
+      <div>
+        <div class="m-section-title">Response</div>
+        <div class="m-actions">
+          <div class="m-action p-high"><div style="flex:1"><div class="m-action-name">Contain</div><div class="m-action-desc" id="m-contain">—</div></div></div>
+          <div class="m-action p-medium"><div style="flex:1"><div class="m-action-name">Verify</div><div class="m-action-desc" id="m-verify">—</div></div></div>
+        </div>
+      </div>
+
+      <div id="m-mitre-wrap">
+        <div class="m-section-title" id="m-mitre-title">MITRE ATT&amp;CK mitigations</div>
+        <div class="m-mitre" id="m-mitre"></div>
+      </div>
+
       <div id="m-details-wrap">
         <div class="m-section-title">Additional Details</div>
         <pre class="m-details-pre" id="m-details">—</pre>
       </div>
-      <div>
-        <div class="m-section-title">Recommended Actions</div>
-        <div class="m-actions">
-          <div class="m-action p-high"><div style="flex:1"><div class="m-action-name">Block Source IP</div><div class="m-action-desc">Add firewall rule to block <span id="m-act-src">this source</span> if pattern continues.</div></div><span class="m-action-badge">HIGH</span></div>
-          <div class="m-action p-high"><div style="flex:1"><div class="m-action-name">Investigate Traffic Logs</div><div class="m-action-desc">Review system/auth logs for activity from this source IP around the alert timestamp.</div></div><span class="m-action-badge">HIGH</span></div>
-          <div class="m-action p-medium"><div style="flex:1"><div class="m-action-name">Update IDS Rules</div><div class="m-action-desc">Tune detection thresholds if known source, or escalate if novel behavior.</div></div><span class="m-action-badge">MED</span></div>
-          <div class="m-action p-low"><div style="flex:1"><div class="m-action-name">Document Incident</div><div class="m-action-desc">Log alert details for audit trail, compliance, and future threat intelligence.</div></div><span class="m-action-badge">LOW</span></div>
+
+      <div id="m-triage-wrap" class="analyst-up">
+        <div class="m-section-title">Triage <span class="m-tri-scope" id="m-tri-scope"></span></div>
+        <div class="m-tri-state" id="m-tri-state">—</div>
+        <label class="m-tri-lbl" for="m-tri-note">Note (why — recorded with the verdict)</label>
+        <input type="text" id="m-tri-note" class="m-tri-note" maxlength="500" placeholder="e.g. admin's scheduled vulnerability scan"/>
+        <label class="m-tri-supp admin-only"><input type="checkbox" id="m-tri-suppress"/> Also suppress future <code id="m-supp-rule">this rule</code> from <code id="m-supp-src">this source</code> (false positive only — still stored, kept out of the queue and of correlation)</label>
+        <div class="m-tri-btns">
+          <button class="btn btn-red" onclick="submitTriage('confirmed')">Confirmed — real</button>
+          <button class="btn btn-green" onclick="submitTriage('false_positive')">False positive</button>
+          <button class="btn btn-blue" onclick="submitTriage('resolved')">Resolved</button>
+          <button class="btn btn-amber" id="m-tri-reopen" onclick="submitTriage('new')">Back to queue</button>
         </div>
       </div>
     </div>
   </div>
 </div>
+
+<!-- EXPLOITATION POPUPS. The one deliberately loud element on the page: it fires
+     only when an exploit / post-exploitation / breach alert opens (high or
+     critical, still untriaged), once per source per cooldown. Further
+     techniques from the same source fold into the same card instead of
+     stacking new ones. It never auto-dismisses. -->
+<div class="xp-stack" id="xp-stack" role="alert" aria-live="assertive"></div>
 
 <div class="toast" id="toast"><div class="toast-title" id="toast-title">Info</div><div id="toast-msg">—</div></div>
 
@@ -638,7 +683,7 @@ const API = (() => {
   return 'http://127.0.0.1:8000';
 })();
 const POLL_MS   = 2000;
-const MAX_DISP  = 30;
+const MAX_DISP  = 100;   // alert groups shown in the queue
 const DEDUP_MS  = 60_000;
 
 /* ═══════════════════════════════════════════
@@ -662,6 +707,17 @@ let apiOnline    = null;
 let tlChart      = null;
 let donutChart   = null;
 let pollIntervals = [];
+
+/* Review queue */
+let queueTab     = 'new';     // triage status shown, or 'all'
+let queueAlerts  = [];        // records for the current tab, newest first
+let queueSig     = '';        // what was last rendered, to skip no-op redraws
+let ipFilter     = null;      // restrict queue to one address (src or dst)
+let lastSummary  = null;      // /alerts/summary
+let lastIncidents = null;     // /incidents
+let playbook     = null;      // /response/playbook, loaded once
+let modalGroup   = null;      // {rep, alerts} open in the dialog
+const SEV_RANK   = {critical:4, high:3, medium:2, low:1, info:0};
 
 const PORT_NAMES = {21:'FTP',22:'SSH',23:'Telnet',25:'SMTP',53:'DNS',80:'HTTP',110:'POP3',
   123:'NTP',143:'IMAP',443:'HTTPS',1900:'SSDP',3306:'MySQL',3389:'RDP',
@@ -740,6 +796,9 @@ async function doLogout() {
   authToken=null; currentUser=null; currentRole=null;
   sessionStorage.clear();
   allAlerts=[]; lastAlertIds=new Set();
+  queueAlerts=[]; queueSig=''; lastSummary=null; lastIncidents=null;
+  [...xpCards.keys()].forEach(dismissExploit); xpSeen.clear(); xpCooldown.clear();
+  closeModal();
   pollIntervals.forEach(clearInterval); pollIntervals=[];
   setApiOnline(false);
   showLoginScreen();
@@ -788,15 +847,17 @@ function onLoginSuccess() {
 
   // Load real model metrics once (static per training run)
   loadModelInfo();
-  // Rule coverage is static for the running build — fetch once, not on a timer.
-  loadRuleCoverage();
+  // Response playbook (per-rule steps + MITRE mitigations) is static for the
+  // running build: fetch once, not on a timer.
+  loadPlaybook();
 
   // Start polling
-  Promise.all([pollStatus(), pollAlerts(), pollIntrusions(), pollIncidents()]);
-  pollIntervals.push(setInterval(pollAlerts,     POLL_MS));
-  pollIntervals.push(setInterval(pollStatus,     POLL_MS * 2));
-  pollIntervals.push(setInterval(pollIntrusions, POLL_MS));
-  pollIntervals.push(setInterval(pollIncidents,  POLL_MS * 2));
+  Promise.all([pollStatus(), pollAlerts(), pollSummary(), pollQueue(), pollIncidents()]);
+  pollIntervals.push(setInterval(pollAlerts,    POLL_MS));
+  pollIntervals.push(setInterval(pollSummary,   POLL_MS));
+  pollIntervals.push(setInterval(pollQueue,     POLL_MS));
+  pollIntervals.push(setInterval(pollStatus,    POLL_MS * 2));
+  pollIntervals.push(setInterval(pollIncidents, POLL_MS * 2));
 }
 
 function applyRoleUI() {
@@ -833,9 +894,11 @@ async function pollAlerts() {
     const changed = firstLoad || alerts.length!==allAlerts.length || alerts.some(a=>!lastAlertIds.has(a.id));
 
     allAlerts=alerts; lastAlertIds=newIds;
+    checkExploitation(alerts, firstLoad);
 
     if (changed) {
-      renderAlerts(); updateStats(); updateDistribution();
+      if (queueTab==='all') { queueAlerts=allAlerts; renderAlerts(); }
+      updateDistribution();
       updateTopIPs(); updateTopPorts(); updateTimeline(); updateAttackRate();
     }
     setApiOnline(true);
@@ -843,62 +906,43 @@ async function pollAlerts() {
 }
 
 /* ═══════════════════════════════════════════
-   INTRUSION STATUS / KILL CHAIN
+   REVIEW QUEUE + SUMMARY
+   The queue is the alerts still awaiting a verdict. An alert leaves it when an
+   analyst marks it confirmed, false positive or resolved (POST /alerts/triage).
 ═══════════════════════════════════════════ */
-const KI_STATUS_CLASS = {
-  'ACTIVE INTRUSION':'st-active', 'BREACHED':'st-breach',
-  'UNDER ATTACK':'st-attack', 'PROBING':'st-probe', 'QUIET':'st-probe'
-};
-
-async function pollIntrusions() {
+async function pollSummary() {
   try {
-    const data = await apiFetch('/intrusions');
-    renderIntrusions(data.chain || [], data.hosts || []);
-    setApiOnline(true);
-  } catch { /* leave last render in place on transient error */ }
+    lastSummary = await apiFetch('/alerts/summary');
+    updateStats();
+    renderIpStrip();
+  } catch { /* transient: next poll retries */ }
 }
 
-function renderIntrusions(chain, hosts) {
-  const list = el('intrusion-list');
-  const active  = hosts.filter(h=>h.status==='ACTIVE INTRUSION').length;
-  const breached= hosts.filter(h=>h.status==='BREACHED').length;
-  const shown   = hosts.filter(h=>h.status!=='QUIET');
-  setText('ki-active', active);
-  setText('ki-breach', breached);
-  setText('ki-tracked', hosts.length);
+async function pollQueue() {
+  if (queueTab==='all') { queueAlerts=allAlerts; renderAlerts(); return; }
+  try {
+    const data = await apiFetch(`/alerts?limit=1000&triage=${encodeURIComponent(queueTab)}`);
+    queueAlerts = [...(Array.isArray(data)?data:[])].reverse();
+    renderAlerts();
+  } catch { /* transient */ }
+}
 
-  if (!shown.length) {
-    list.innerHTML = '<div class="ki-empty"><span class="ki-ok">◇ NO INTRUSIONS DETECTED</span><br>No host has breached defenses. Recon/attempts appear here as they escalate.</div>';
-    return;
-  }
+function setQueueTab(tab) {
+  queueTab = tab;
+  document.querySelectorAll('.q-tab').forEach(b => {
+    const on = b.dataset.tab===tab;
+    b.classList.toggle('on', on); b.setAttribute('aria-selected', on?'true':'false');
+  });
+  queueSig=''; pollQueue();
+}
 
-  const frag = document.createDocumentFragment();
-  for (const h of shown) {
-    const cls = KI_STATUS_CLASS[h.status] || 'st-probe';
-    const reached = new Set((h.stages_reached||[]).map(s=>s.stage));
-    const row = document.createElement('div');
-    row.className = 'ki-row ' + cls;
-
-    // Kill-chain stepper: every stage, reached ones lit.
-    let steps = '';
-    chain.forEach((c, i) => {
-      const on = reached.has(c.stage) ? ' on' : '';
-      steps += `<div class="ki-step${on}" title="${esc(c.label)}"><span class="ki-dot"></span></div>`;
-      if (i < chain.length-1) steps += '<div class="ki-arrow"></div>';
-    });
-
-    const furthest = h.furthest_stage ? esc(h.furthest_stage) : '—';
-    const lastSeen = h.last_activity_sec!=null ? fmtAge(h.last_activity_sec) : '';
-    row.innerHTML = `
-      <div class="ki-host">${esc(h.host)}<span class="ki-sub">${h.stage_count} stage${h.stage_count===1?'':'s'} · last ${lastSeen}</span></div>
-      <div class="ki-badge ${cls}">${esc(h.status)}</div>
-      <div>
-        <div class="ki-chain">${steps}</div>
-        <div class="ki-reached">reached: ${furthest}</div>
-      </div>`;
-    frag.appendChild(row);
-  }
-  list.innerHTML=''; list.appendChild(frag);
+function setIpFilter(ip) {
+  ipFilter = ip;
+  const f = el('q-filter');
+  if (ip) { f.textContent = `IP: ${ip}  ✕`; f.classList.remove('hidden'); }
+  else    { f.textContent = ''; f.classList.add('hidden'); }
+  queueSig=''; renderAlerts(); renderIpStrip();
+  if (ip) el('alerts-list').scrollIntoView({behavior:'smooth', block:'nearest'});
 }
 
 function fmtAge(sec) {
@@ -912,7 +956,7 @@ function fmtAge(sec) {
    STATUS
 ═══════════════════════════════════════════ */
 function applyStatus(d) {
-  const packets=d.packets_captured??0, alertsGen=d.alerts_generated??0;
+  const packets=d.packets_captured??0;
   const upSec=d.uptime_seconds??0, iface=d.interface||'—';
   setText('tp-iface',iface);
   /* A capture that died (bad interface, missing privileges) must not read as a
@@ -931,9 +975,6 @@ function applyStatus(d) {
   const pps=upSec>0?(packets/upSec).toFixed(1):0;
   setText('tp-rate',pps+' pkt/s');
   setText('s-packets',fmtNum(packets)); setText('s-pps',pps+' pkt/s avg');
-  setText('s-alerts',fmtNum(alertsGen)); setText('s-stored',(d.alerts_stored??0)+' stored');
-  const dr=packets>0?((alertsGen/packets)*100).toFixed(3):'0.000';
-  setText('s-det-rate','det. rate: '+dr+'%');
 }
 
 function setApiOnline(online) {
@@ -957,20 +998,38 @@ function setApiOnline(online) {
 ═══════════════════════════════════════════ */
 function renderAlerts() {
   const container=el('alerts-list');
-  const display=allAlerts.slice(0,MAX_DISP);
-  if (!display.length) { container.innerHTML='<div class="no-alerts-msg">No alerts detected.</div>'; return; }
+  let list = queueAlerts;
+  if (ipFilter) list = list.filter(a => a.src===ipFilter || a.dst===ipFilter);
+  // The review queue is worked worst-first; the other tabs are history, newest first.
+  if (queueTab==='new') {
+    list = [...list].sort((a,b) =>
+      (SEV_RANK[(b.severity||'').toLowerCase()]||0) - (SEV_RANK[(a.severity||'').toLowerCase()]||0)
+      || (b.id||0) - (a.id||0));
+  }
+  const sig = queueTab+'|'+ipFilter+'|'+list.map(a=>a.id+':'+a.triage_status+':'+a.count).join(',');
+  if (sig===queueSig) return;
+  queueSig = sig;
+
+  if (!list.length) {
+    const msg = queueTab==='new'
+      ? (ipFilter ? `Nothing awaiting review for ${esc(ipFilter)}.` : 'Queue clear — every alert has a verdict.')
+      : 'No alerts here.';
+    container.innerHTML=`<div class="no-alerts-msg">${msg}</div>`;
+    return;
+  }
 
   const groups=[], seen=new Map();
-  for (const alert of display) {
-    const key=`${alert.src}||${alert.type}`;
+  for (const alert of list) {
+    const key=`${alert.src}||${alert.type}||${alert.triage_status}`;
     const ts=parseAlertTs(alert.timestamp)||0;
     const existing=seen.get(key);
     if (existing!==undefined) {
       const grp=groups[existing];
-      if (ts-(parseAlertTs(grp.alerts[0].timestamp)||0)<DEDUP_MS) { grp.count++; grp.alerts.push(alert); grp.rep=alert; continue; }
+      if (Math.abs(ts-(parseAlertTs(grp.alerts[0].timestamp)||0))<DEDUP_MS) { grp.count+=(alert.count||1); grp.alerts.push(alert); continue; }
     }
     const idx=groups.length; seen.set(key,idx);
-    groups.push({rep:alert,count:1,alerts:[alert]});
+    groups.push({rep:alert,count:(alert.count||1),alerts:[alert]});
+    if (groups.length>=MAX_DISP) break;
   }
 
   const frag=document.createDocumentFragment();
@@ -979,9 +1038,14 @@ function renderAlerts() {
     const tsD=a.timestamp?(a.timestamp.length>8?a.timestamp.split(' ')[1]||a.timestamp:a.timestamp):'—';
     const div=document.createElement('div');
     div.className=`alert-item sev-${sev}`;
-    div.addEventListener('click',()=>openModal(a));
+    div.tabIndex=0;
+    div.addEventListener('click',()=>openModal(grp));
+    div.addEventListener('keydown',e=>{ if(e.key==='Enter') openModal(grp); });
     const sevLabel=sev==='critical'?'CRIT':sev.toUpperCase();
-    const badge=grp.count>1?`<span class="alert-count-badge">×${grp.count}</span>`:'';
+    const badge=grp.count>1?`<span class="alert-count-badge" title="${grp.alerts.length} record(s), ${grp.count} event(s)">×${grp.count}</span>`:'';
+    const tri = (a.triage_status && a.triage_status!=='new')
+      ? `<div class="alert-triage">${esc(TRIAGE_LABEL[a.triage_status]||a.triage_status)} · ${esc(a.triage_by||'')}${a.triage_note?' · '+esc(a.triage_note):''}</div>`
+      : (a.triage_note ? `<div class="alert-triage">${esc(a.triage_note)}</div>` : '');
     div.innerHTML=`
       <div class="alert-sev-dot"></div>
       <div class="alert-body">
@@ -992,25 +1056,34 @@ function renderAlerts() {
         </div>
         <div class="alert-msg">${esc(a.message||'No message')}</div>
         <div class="alert-src">SRC: ${esc(a.src||'—')}${a.dst?' → '+esc(a.dst):''}</div>
+        ${tri}
       </div>${badge}`;
     frag.appendChild(div);
   }
   container.innerHTML=''; container.appendChild(frag);
 }
 
+const TRIAGE_LABEL = {new:'NEEDS REVIEW', confirmed:'CONFIRMED', false_positive:'FALSE POSITIVE', resolved:'RESOLVED'};
+
 /* ═══════════════════════════════════════════
    STATS / CHARTS
 ═══════════════════════════════════════════ */
 function updateStats() {
-  const crit=allAlerts.filter(a=>a.severity==='critical').length;
-  const high=allAlerts.filter(a=>a.severity==='high').length;
-  const scans=allAlerts.filter(a=>a.type&&(a.type.includes('Scan')||a.type.includes('scan'))).length;
-  const ml=allAlerts.filter(a=>a.type==='ML Anomaly').length;
-  const uips=new Set(allAlerts.map(a=>a.src).filter(Boolean)).size;
-  setText('s-critical',crit); setText('s-high',high);
-  setText('s-scans',scans); setText('s-ml',ml); setText('s-unique-ips',uips);
-  setText('attacker-count',uips+' sources');
-  setText('s-ml-status',ml>0?'active detections':'no detections');
+  const s = lastSummary; if (!s) return;
+  const sev = s.by_severity || {};
+  const cell = k => sev[k] || {total:0, open:0};
+  setText('s-open', fmtNum(s.open||0));
+  setText('s-stored', `of ${fmtNum(s.records||0)} stored · ${fmtNum(s.alerts_represented||0)} events`);
+  setText('s-critical', cell('critical').open); setText('s-critical-sub', `${cell('critical').total} in total`);
+  setText('s-high', cell('high').open);         setText('s-high-sub', `${cell('high').total} in total`);
+  setText('s-incidents', s.incidents_open||0);
+  setText('s-incidents-sub', `${s.active_intrusions||0} active intrusion${s.active_intrusions===1?'':'s'} · ${s.incidents_total||0} total`);
+  setText('s-ips', (s.open_sources||[]).length);
+  setText('s-ml', s.ml_records||0);
+  setText('s-alert-rate', (s.new_records_last_min||0)+'/min');
+  const t = s.by_triage || {};
+  ['new','confirmed','false_positive','resolved'].forEach(k => setText('qn-'+k, t[k]||0));
+  setText('attacker-count', (s.open_sources||[]).length+' in question');
 }
 
 function updateAttackRate() {
@@ -1018,7 +1091,6 @@ function updateAttackRate() {
   const recent=allAlerts.filter(a=>{const ts=parseAlertTs(a.timestamp);return ts&&(now-ts)<60000;});
   setText('rate-per-min',recent.length);
   setText('rate-per-sec',(recent.length/60).toFixed(1));
-  setText('s-alert-rate',recent.length+'/min');
 }
 
 function updateDistribution() {
@@ -1029,7 +1101,7 @@ function updateDistribution() {
     else if (t.includes('scan')||t.includes('recon')) c.recon++;
     else if (t.includes('brute')||t.includes('force')) c.brute++;
     else if (t.includes('ml')||t.includes('anomaly')) c.ml++;
-    else if (t.includes('chain')||t.includes('coordinated')||t.includes('multi')) c.chain++;
+    else if (t.includes('incident')||t.includes('intrusion')||t.includes('chain')) c.chain++;
     else c.other++;
   }
   const total=Object.values(c).reduce((a,b)=>a+b,0);
@@ -1088,100 +1160,108 @@ function updateTimeline() {
 }
 
 /* ═══════════════════════════════════════════
-   CORRELATED INCIDENTS
-   One row per incident, not per alert. The chain of kill-chain stages is the
-   point: it is what distinguishes an attacker advancing from a noisy scanner.
+   KILL CHAIN — IPs IN QUESTION
+   One engine (detection/correlation.py), one view. A row is one source that
+   advanced forward through the kill chain inside the correlation window; the
+   strip above lists every address that still has an open alert.
 ═══════════════════════════════════════════ */
 async function pollIncidents() {
   try {
-    const data = await apiFetch('/incidents');
-    renderIncidents(data);
+    lastIncidents = await apiFetch('/incidents');
+    renderIncidents();
+    renderIpStrip();
   } catch (e) { /* transient: the next poll retries */ }
 }
 
-function renderIncidents(data) {
-  const incidents = (data && data.incidents) || [];
-  const g = (data && data.grouping) || {};
+function openIncidentBySource() {
+  const m = new Map();
+  for (const i of (lastIncidents?.incidents||[])) if (i.open && !m.has(i.source)) m.set(i.source, i);
+  return m;
+}
+
+function renderIpStrip() {
+  const strip = el('ipq-strip');
+  const srcs = lastSummary?.open_sources || [];
+  if (!srcs.length) {
+    strip.innerHTML = '<span class="ipq-none">No IPs in question. Every open alert has been reviewed.</span>';
+    return;
+  }
+  const incBy = openIncidentBySource();
+  strip.innerHTML = '<span class="ipq-lbl">IPs in question</span>' + srcs.map(({ip, open}) => {
+    const inc = incBy.get(ip);
+    const cls = inc ? ` inc-${esc(inc.severity)}` : '';
+    const on = ip===ipFilter ? ' on' : '';
+    const tip = inc ? `${inc.incident_id}: ${inc.stage_count} stage(s)` : 'open alerts, no incident';
+    return `<button class="ipq-chip${cls}${on}" data-ip="${esc(ip)}" title="${esc(tip)}">${esc(ip)}<span class="ipq-n">${open}</span></button>`;
+  }).join('');
+  strip.querySelectorAll('.ipq-chip').forEach(b =>
+    b.addEventListener('click', () => setIpFilter(b.dataset.ip===ipFilter ? null : b.dataset.ip)));
+}
+
+function renderIncidents() {
+  const data = lastIncidents || {};
+  const incidents = data.incidents || [];
+  const chain = data.chain || [];
+  const g = data.grouping || {};
+  const open = incidents.filter(i => i.open);
+  const intr = open.filter(i => i.active_intrusion).length;
   el('inc-meta').textContent =
-    `grouped by ${g.key || 'source IP'} · ${g.window_seconds || '—'}s window · ${incidents.length} total`;
-  el('inc-rule').textContent = g.promotion_rule
-    ? `Promotion rule: ${g.promotion_rule}. Severity: ${g.severity_rule || ''}`
-    : '';
+    `${open.length} open · ${intr} active intrusion${intr===1?'':'s'} · grouped by ${g.key||'source IP'}, ${g.window_seconds||'—'}s window`;
 
   if (!incidents.length) {
     el('incident-list').innerHTML =
-      '<div class="no-alerts-msg">No correlated incidents. Alerts group into an ' +
-      'incident only when one source advances forward through the kill chain.</div>';
+      '<div class="no-alerts-msg">No incidents. Alerts group into one only when a source advances forward through the kill chain.</div>';
     return;
   }
 
-  el('incident-list').innerHTML = incidents.map(inc => {
-    const chain = (inc.stages || []).map(s =>
-      `<span class="inc-stage">${esc(s.label)}${s.count > 1 ? ' ×' + s.count : ''}</span>`
-    ).join('<span class="inc-arrow">→</span>');
-    const rules = Object.keys(inc.rule_ids || {}).map(r =>
-      `${esc(r)}${inc.rule_ids[r] > 1 ? '×' + inc.rule_ids[r] : ''}`).join('  ');
+  // Open incidents first, then the most recent closed ones for context.
+  const closed = incidents.filter(i => !i.open);
+  const shown = [...open, ...closed.slice(0, 5)];
+  const rows = shown.map(inc => {
+    const reached = new Set((inc.stages||[]).map(s => s.stage));
+    const steps = chain.map((c, i) => {
+      const on = reached.has(c.stage);
+      const lbl = on ? `<span>${esc(c.label)}</span>` : '';
+      return `<span class="kc-step${on?' on':''}" title="${esc(c.label)}"><span class="kc-dot"></span>${lbl}</span>`
+           + (i < chain.length-1 ? '<span class="kc-arrow"></span>' : '');
+    }).join('');
     const dests = Object.keys(inc.destinations || {});
+    const isIntr = inc.open && inc.active_intrusion;
     return `
-      <div class="inc-row sev-${esc(inc.severity)}">
-        <div class="inc-head">
-          <span class="inc-id">${esc(inc.incident_id)}</span>
-          <span class="inc-src">${esc(inc.source)}</span>
-          <span class="inc-dim">${esc(inc.severity).toUpperCase()}</span>
-          <span class="inc-dim">${inc.event_count} alerts</span>
-          <span class="inc-dim">${Math.round(inc.duration_sec)}s span</span>
-          <span class="inc-dim">${inc.open ? 'OPEN' : 'closed'}</span>
-          ${dests.length ? `<span class="inc-dim">→ ${esc(dests.slice(0,3).join(', '))}${dests.length>3?' +'+(dests.length-3):''}</span>` : ''}
+      <div class="kc-row sev-${esc(inc.severity)}${inc.open?'':' closed'}${isIntr?' intrusion':''}" tabindex="0" data-ip="${esc(inc.source)}"
+           title="Show this source's alerts in the queue">
+        <div class="kc-ip">${esc(inc.source)}<span class="kc-sub">${esc(inc.incident_id)} · ${inc.event_count} alerts · ${Math.round(inc.duration_sec)}s span · last ${fmtAge(inc.idle_sec)}</span></div>
+        <div>
+          <div class="kc-chain">${steps}</div>
+          ${dests.length ? `<div class="kc-dests">→ ${esc(dests.slice(0,4).join(', '))}${dests.length>4?' +'+(dests.length-4):''}</div>` : ''}
         </div>
-        <div class="inc-chain">${chain}</div>
-        <div class="inc-rules">${rules}</div>
+        <div class="kc-badges">
+          ${isIntr ? '<span class="kc-badge intr">Active intrusion</span>' : ''}
+          <span class="kc-badge">${esc(inc.severity)}</span>
+          <span class="kc-badge">${inc.open ? 'open' : 'closed'}</span>
+        </div>
       </div>`;
-  }).join('');
+  });
+  if (closed.length > 5) rows.push(`<div class="kc-more">+${closed.length-5} older closed incident(s)</div>`);
+  el('incident-list').innerHTML = rows.join('');
+  el('incident-list').querySelectorAll('.kc-row').forEach(r => {
+    const go = () => setIpFilter(r.dataset.ip);
+    r.addEventListener('click', go);
+    r.addEventListener('keydown', e => { if (e.key==='Enter') go(); });
+  });
 }
 
 /* ═══════════════════════════════════════════
-   RULE COVERAGE
-   Loaded once. The tier split is the honest part: specific exploit signatures
-   are not the same kind of thing as behavioural rules that generalise, and
-   presenting one number would overstate what this sensor sees. Every count
-   shown comes from the API, so adding a rule never leaves a stale figure here.
+   RESPONSE PLAYBOOK
 ═══════════════════════════════════════════ */
-async function loadRuleCoverage() {
-  try {
-    const data = await apiFetch('/rules/coverage');
-    renderCoverage(data);
-  } catch (e) {
-    el('cov-scope').textContent = 'Rule coverage unavailable.';
-  }
+async function loadPlaybook() {
+  try { playbook = await apiFetch('/response/playbook'); }
+  catch (e) { playbook = null; }
 }
 
-function renderCoverage(data) {
-  el('cov-total').textContent = `${data.total_rules} rules`;
-  el('cov-scope').innerHTML =
-    `<strong>Scope limit.</strong> ${esc(data.scope_limit)}`;
-
-  el('cov-tiers').innerHTML = (data.tiers || []).map(t => {
-    // The badge is the coverage claim, so it only goes on the tiers that make
-    // one (Tier 1 / Tier 2 — the ones carrying a coverage_note). Badging the
-    // ML or correlation tiers would read as a claim nobody is making.
-    const badge = !t.coverage_note ? ''
-      : (t.generalizing_rules > 0 && t.specific_rules === 0
-          ? '<span class="cov-badge broad">generalises beyond these</span>'
-          : '<span class="cov-badge narrow">these exploits only</span>');
-    const rules = (t.rules || []).map(r =>
-      `<span class="cov-rule ${r.generalizes ? 'gen' : ''}" title="${esc(r.description)}">${esc(r.rule_id)}</span>`
-    ).join('');
-    return `
-      <div class="cov-tier">
-        <div class="cov-tier-head">
-          <span class="cov-tier-name">${esc(t.label)}</span>
-          <span class="inc-dim">${t.rule_count} rules · ${t.generalizing_rules} generalising / ${t.specific_rules} specific</span>
-          ${badge}
-        </div>
-        ${t.coverage_note ? `<div class="cov-note">${esc(t.coverage_note)}</div>` : ''}
-        <div class="cov-rules">${rules}</div>
-      </div>`;
-  }).join('');
+function playbookFor(alert) {
+  const rules = playbook?.rules || {};
+  return rules[alert.rule_id] || rules[alert.type] || null;
 }
 
 /* ═══════════════════════════════════════════
@@ -1331,7 +1411,9 @@ async function clearAlerts() {
   try {
     await apiFetch('/alerts',{method:'DELETE'});
     allAlerts=[]; lastAlertIds=new Set();
-    renderAlerts(); updateStats(); updateDistribution(); updateTopIPs(); updateTopPorts(); updateTimeline();
+    queueAlerts=[]; queueSig='';
+    renderAlerts(); updateDistribution(); updateTopIPs(); updateTopPorts(); updateTimeline();
+    pollSummary(); pollIncidents();
     toast('Cleared','All alerts removed.','ok'); setLastAction('Alerts cleared');
   } catch(e) { toast('Error',e.message,'error'); }
 }
@@ -1348,35 +1430,256 @@ function exportAlerts() {
 }
 
 async function manualRefresh() {
-  await Promise.all([pollStatus(),pollAlerts()]);
+  await Promise.all([pollStatus(),pollAlerts(),pollSummary(),pollQueue(),pollIncidents()]);
   toast('Refreshed','Data updated.','ok'); setLastAction('Manual refresh');
 }
 
 /* ═══════════════════════════════════════════
    MODAL
 ═══════════════════════════════════════════ */
-function openModal(alert) {
+function openModal(grp) {
+  // Accept a single alert too (the exploitation popup passes one).
+  if (!grp.alerts) grp = {rep: grp, alerts: [grp], count: grp.count||1};
+  modalGroup = grp;
+  const alert = grp.rep;
+  const src = alert.src || 'this source', dst = alert.dst || 'the destination';
   const sev=(alert.severity||'low').toLowerCase();
   el('m-sev').textContent=(alert.severity||'—').toUpperCase();
   el('m-sev').className='modal-sev '+sev;
   el('m-title').textContent=alert.type||'Alert Detail';
   el('m-ts').textContent=alert.timestamp||'—';
-  el('m-id').textContent=alert.id||'—';
+  el('m-id').textContent=grp.alerts.length>1 ? `${alert.id} (+${grp.alerts.length-1} grouped)` : (alert.id||'—');
   el('m-type').textContent=alert.type||'—';
   el('m-severity').textContent=(alert.severity||'—').toUpperCase();
   el('m-src').textContent=alert.src||'—';
   el('m-dst').textContent=alert.dst||'—';
   el('m-proto').textContent=alert.protocol||'—';
+  el('m-rule').textContent=alert.rule_id||'—';
   el('m-msg').textContent=alert.message||'No message';
-  el('m-act-src').textContent=alert.src||'this source';
+
+  const pb = playbookFor(alert);
+  const stageLbl = (lastIncidents?.chain||[]).find(c => c.stage===(alert.kill_chain_stage||pb?.stage))?.label;
+  el('m-stage').textContent = stageLbl || (alert.kill_chain_stage||pb?.stage||'— (not on the chain)');
+
+  // Technique + MITRE mitigations
+  const tech = pb?.technique;
+  const techCell = el('m-tech'); techCell.textContent='';
+  if (tech) {
+    const a = document.createElement('a');
+    a.href = tech.url; a.target='_blank'; a.rel='noopener noreferrer';
+    a.textContent = tech.id + (tech.name ? ' ' + tech.name : '');
+    techCell.appendChild(a);
+  } else techCell.textContent = alert.mitre_technique || '— (none mapped)';
+
+  const mit = el('m-mitre'); mit.innerHTML='';
+  if (tech) {
+    el('m-mitre-wrap').style.display='';
+    el('m-mitre-title').textContent = `MITRE ATT&CK mitigations — ${tech.id}${tech.name?' '+tech.name:''}`;
+    if (tech.mitigations && tech.mitigations.length) {
+      for (const m of tech.mitigations) {
+        const row = document.createElement('div'); row.className='m-mit';
+        const left = document.createElement('div');
+        const link = document.createElement('a');
+        link.href=m.url; link.target='_blank'; link.rel='noopener noreferrer'; link.textContent=m.id;
+        const nm = document.createElement('span'); nm.className='m-mit-name'; nm.textContent=m.name;
+        left.append(link, nm);
+        const act = document.createElement('div'); act.textContent = m.action;
+        row.append(left, act); mit.appendChild(row);
+      }
+    } else {
+      const none = document.createElement('div'); none.className='m-mit-none';
+      none.textContent = tech.no_preventive_control || 'This technique is not in the playbook yet.';
+      mit.appendChild(none);
+    }
+  } else {
+    el('m-mitre-wrap').style.display = 'none';
+  }
+
+  // Response: per rule, written from whose address src actually is.
+  const resp = pb?.response || playbook?.default_response;
+  const fill = t => (t||'—').replaceAll('{src}', src).replaceAll('{dst}', dst);
+  el('m-contain').textContent = resp ? fill(resp.contain) : 'Playbook unavailable.';
+  el('m-verify').textContent  = resp ? fill(resp.verify)  : '—';
+
   if (alert.details&&Object.keys(alert.details).length>0) {
     el('m-details-wrap').style.display='';
     el('m-details').textContent=JSON.stringify(alert.details,null,2);
   } else { el('m-details-wrap').style.display='none'; }
+
+  // Triage
+  const n = grp.alerts.length;
+  el('m-tri-scope').textContent = n>1 ? `— applies to all ${n} grouped records` : '';
+  const st = alert.triage_status || 'new';
+  el('m-tri-state').textContent = st==='new'
+    ? 'Status: NEEDS REVIEW' + (alert.triage_note ? ' — '+alert.triage_note : '')
+    : `Status: ${TRIAGE_LABEL[st]||st} by ${alert.triage_by||'?'}${alert.triage_at?' at '+new Date(alert.triage_at*1000).toLocaleString():''}${alert.triage_note?' — '+alert.triage_note:''}`;
+  el('m-tri-reopen').style.display = st==='new' ? 'none' : '';
+  el('m-tri-note').value = '';
+  el('m-tri-suppress').checked = false;
+  el('m-supp-rule').textContent = alert.rule_id || alert.type || 'this rule';
+  el('m-supp-src').textContent = alert.src || 'this source';
+  el('m-tri-suppress').closest('label').style.display =
+    (currentRole==='admin' && !['CORRELATED_INCIDENT','ACTIVE_INTRUSION'].includes(alert.rule_id)) ? '' : 'none';
+
+  loadEvidence(alert);
   el('modal').classList.add('open');
   document.body.style.overflow='hidden';
 }
-function closeModal() { el('modal').classList.remove('open'); document.body.style.overflow=''; }
+
+/* What the sensor knows that bears on "is this real". Each line says which way
+   it leans in words, not just colour. */
+async function loadEvidence(alert) {
+  const ul = el('m-evidence');
+  ul.innerHTML = '<li class="ev-dim">Loading…</li>';
+  const items = [];
+  const add = (lean, text) => items.push({lean, text});
+  if (alert.tier==='exploit_tier1') add('real', 'Exact exploit payload signature — this rule only matches the specific exploit, so benign traffic rarely trips it.');
+  if (alert.tier==='ml') add('weak', 'Model output only. Look for a rule-based alert from the same host before acting.');
+  if (alert.details?.suppressed_by) add('benign', `Arrived pre-triaged by ${alert.details.suppressed_by}.`);
+  try {
+    const c = await apiFetch(`/alerts/${encodeURIComponent(alert.id)}/context`);
+    if (modalGroup?.rep !== alert) return;           // dialog moved on
+    const v = c.verdicts || {};
+    const fp = v.false_positive||0, conf = (v.confirmed||0) + (v.resolved||0);
+    if (fp || conf) {
+      add(conf>fp ? 'real' : 'benign',
+          `This rule from ${c.src} was judged before: ${fp} false positive, ${conf} confirmed/resolved.`);
+    } else add('weak', `No earlier verdict on ${c.rule_id} from ${c.src}.`);
+    if (c.src_authorized_scanner) add('benign', `${c.src} is an authorized scanner (assets.json).`);
+    if (c.src_known_host) add('benign', `${c.src} is a known host in assets.json.`);
+    add('weak', c.src_internal ? `${c.src} is an internal address.` : `${c.src} is an external address.`);
+    if (c.src_profile) {
+      const age = c.src_profile.age_seconds;
+      add(c.src_profile.state==='established' ? 'benign' : 'weak',
+          `Sensor has watched ${c.src} for ${fmtUptime(age)} (${c.src_profile.state}, ${c.src_profile.known_peers} known peers, ${c.src_profile.connections} connections).`);
+    } else if (c.src_internal) add('weak', `No behaviour profile for ${c.src} yet — first seen since the last restart.`);
+    if (c.open_incident) {
+      const inc = c.open_incident;
+      add('real', `Part of open incident ${inc.incident_id}: ${(inc.stages||[]).map(s=>s.label).join(' → ')}${inc.active_intrusion?' — ACTIVE INTRUSION':''}.`);
+    }
+    if (c.suppression) add('benign', `Suppressed: #${c.suppression.id} by ${c.suppression.created_by}${c.suppression.note?' ('+c.suppression.note+')':''}.`);
+  } catch (e) {
+    add('weak', 'Context unavailable: ' + e.message);
+  }
+  const LEAN = {real:['ev-against','Leans real — '], benign:['ev-for','Leans benign — '], weak:['','']};
+  ul.innerHTML = '';
+  for (const it of items) {
+    const li = document.createElement('li');
+    const [cls, prefix] = LEAN[it.lean] || LEAN.weak;
+    if (cls) li.className = cls;
+    li.textContent = prefix + it.text;
+    ul.appendChild(li);
+  }
+}
+
+async function submitTriage(status) {
+  if (!modalGroup) return;
+  const ids = modalGroup.alerts.map(a => a.id).filter(id => id!=null);
+  const note = el('m-tri-note').value.trim();
+  const suppress = status==='false_positive' && el('m-tri-suppress').checked;
+  if (el('m-tri-suppress').checked && status!=='false_positive') {
+    toast('Not suppressed', 'Only a false positive can be suppressed.', 'warn');
+  }
+  try {
+    const r = await apiFetch('/alerts/triage', {method:'POST', headers:{'Content-Type':'application/json'},
+                                               body: JSON.stringify({ids, status, note, suppress})});
+    const extra = r.suppressions_created?.length ? ` + ${r.suppressions_created.length} suppression(s)` : '';
+    toast('Triaged', `${r.updated} alert(s) → ${TRIAGE_LABEL[status]}${extra}`, 'ok');
+    setLastAction(`Triaged ${r.updated} alert(s) as ${status}`);
+    closeModal();
+    queueSig=''; pollQueue(); pollSummary(); pollIncidents();
+  } catch (e) { toast('Triage failed', e.message, 'error'); }
+}
+
+/* ═══════════════════════════════════════════
+   EXPLOITATION POPUP
+   Fires when an exploit, post-exploitation or breach alert OPENS — high or
+   critical, untriaged. One card per source; later techniques from the same
+   source fold into it. Dismissing starts a cooldown for that source, so the
+   card cannot become wallpaper during one attack: the queue still has it all.
+═══════════════════════════════════════════ */
+const XP_COOLDOWN_MS = 10*60*1000;
+const XP_RECENT_SEC  = 300;          // on page load, surface exploits this fresh
+const XP_MAX_CARDS   = 4;
+const xpCards = new Map();           // src -> {card, alerts}
+const xpCooldown = new Map();        // src -> epoch ms
+const xpSeen = new Set();            // alert ids already considered
+
+function isExploitation(a) {
+  const sev = (a.severity||'').toLowerCase();
+  if (sev!=='critical' && sev!=='high') return false;
+  if ((a.triage_status||'new')!=='new') return false;
+  return a.tier==='exploit_tier1' || a.tier==='exploit_tier2'
+      || a.kill_chain_stage==='initial_access' || a.rule_id==='ACTIVE_INTRUSION';
+}
+
+function checkExploitation(alerts, firstLoad) {
+  const nowMs = Date.now();
+  // Oldest first, so a card's first line is where the attack started.
+  for (const a of [...alerts].reverse()) {
+    if (a.id==null || xpSeen.has(a.id)) continue;
+    xpSeen.add(a.id);
+    if (!isExploitation(a)) continue;
+    // On page load only surface exploits whose latest event is fresh. Uses the
+    // event timestamp, not first_seen: restored records get first_seen = restart.
+    if (firstLoad && !(nowMs - (parseAlertTs(a.timestamp)||0) < XP_RECENT_SEC*1000)) continue;
+    showExploit(a);
+  }
+}
+
+function showExploit(a) {
+  const src = a.src || 'unknown source';
+  const existing = xpCards.get(src);
+  if (existing) { existing.alerts.push(a); paintExploit(src); return; }
+  if ((xpCooldown.get(src)||0) > Date.now()) return;
+  if (xpCards.size >= XP_MAX_CARDS) {
+    const last = [...xpCards.keys()].pop();
+    xpCards.get(last).alerts.push(a); paintExploit(last); return;
+  }
+  const card = document.createElement('div'); card.className='xp-card';
+  el('xp-stack').appendChild(card);
+  xpCards.set(src, {card, alerts:[a]});
+  paintExploit(src);
+}
+
+function techLabel(a) {
+  const t = playbookFor(a)?.technique;
+  return t ? `${t.id}${t.name?' '+t.name:''}` : (a.mitre_technique||'');
+}
+
+function paintExploit(src) {
+  const entry = xpCards.get(src); if (!entry) return;
+  const first = entry.alerts[0];
+  const isIntr = entry.alerts.some(x => x.rule_id==='ACTIVE_INTRUSION');
+  const more = entry.alerts.slice(1).map(x =>
+    `<div>+ ${esc(x.timestamp?.split(' ')[1]||'')} ${esc(x.type)}${x.src!==first.src?' from '+esc(x.src):''}</div>`).join('');
+  entry.card.innerHTML = `
+    <div class="xp-head"><span>${isIntr ? 'ACTIVE INTRUSION' : 'EXPLOITATION STARTED'}</span><span>${esc(first.timestamp||'')}</span></div>
+    <div class="xp-body">
+      <div class="xp-title">${esc(first.type||'Exploit')}</div>
+      <div class="xp-route">${esc(first.src||'?')} → ${esc(first.dst||'?')}${first.details?.dst_port?':'+esc(first.details.dst_port):''}</div>
+      ${techLabel(first) ? `<div class="xp-tech">MITRE ${esc(techLabel(first))}</div>` : ''}
+      ${more ? `<div class="xp-more">${more}</div>` : ''}
+    </div>
+    <div class="xp-btns">
+      <button class="btn btn-red" data-act="open">Open alert</button>
+      <button class="btn btn-blue" data-act="filter">Show ${esc(src)} in queue</button>
+      <button class="btn btn-amber" data-act="ack">Acknowledge</button>
+    </div>`;
+  entry.card.querySelector('[data-act="open"]').onclick = () => { const latest = entry.alerts[entry.alerts.length-1]; dismissExploit(src); openModal(latest); };
+  entry.card.querySelector('[data-act="filter"]').onclick = () => { dismissExploit(src); setQueueTab('new'); setIpFilter(src); };
+  entry.card.querySelector('[data-act="ack"]').onclick = () => dismissExploit(src);
+}
+
+/* Acknowledging dismisses the popup only. It is not a verdict: the alerts stay
+   in the review queue until someone triages them. */
+function dismissExploit(src) {
+  const entry = xpCards.get(src); if (!entry) return;
+  entry.card.remove(); xpCards.delete(src);
+  xpCooldown.set(src, Date.now() + XP_COOLDOWN_MS);
+}
+
+function closeModal() { el('modal').classList.remove('open'); document.body.style.overflow=''; modalGroup=null; }
 function handleModalClick(e) { if(e.target.id==='modal') closeModal(); }
 
 /* ═══════════════════════════════════════════
