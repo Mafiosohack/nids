@@ -10,6 +10,7 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 cd "$(dirname "$0")"
+mkdir -p logs   # gitignored, so absent on a fresh clone
 
 echo "[*] Killing any previous NIDS processes..."
 pkill -f "python.*main.py"    2>/dev/null || true
@@ -45,5 +46,4 @@ echo ""
 sudo -u "$SUDO_USER" xdg-open http://127.0.0.1:8000 2>/dev/null &
 
 # Tail logs
-mkdir -p logs
 tail -f logs/main.log logs/live_ids.log

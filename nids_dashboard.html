@@ -691,7 +691,13 @@ async function apiFetch(path, opts = {}) {
       handleSessionExpired();
       throw new Error('Session expired');
     }
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    if (!r.ok) {
+      // Surface the server's reason (FastAPI puts it in `detail`); a bare
+      // "HTTP 400" hides why, e.g. which capture interface was not found.
+      let detail = '';
+      try { const b = await r.json(); detail = typeof b.detail === 'string' ? b.detail : JSON.stringify(b.detail); } catch (_) {}
+      throw new Error(detail ? `HTTP ${r.status}: ${detail}` : `HTTP ${r.status}`);
+    }
     return await r.json();
   } catch (e) {
     clearTimeout(timer);

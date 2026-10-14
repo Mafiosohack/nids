@@ -2339,6 +2339,10 @@ def control_start(session: dict = Depends(require_permission("control_sniffer"))
     if system_stats["sniffer_error"] or not sniffer_thread.is_alive():
         err = system_stats["sniffer_error"] or "capture thread exited immediately"
         system_stats["running"] = False
+        if "Permission" in err or "not permitted" in err:
+            # The OS refused a raw socket, not the app. Say how to fix it.
+            err += (" - raw packet capture needs root. Restart the server with "
+                    "'sudo venv/bin/python main.py' (Windows: Administrator + Npcap).")
         raise HTTPException(500, f"Sniffer failed to start: {err}")
 
     print(f"[NIDS] Sniffer started by {session['username']}")
