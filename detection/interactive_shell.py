@@ -60,6 +60,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
+from utils.bounded import trim_oldest
+
 from .findings import Finding
 
 # A payload at or below this many bytes counts as a "keystroke-sized" packet.
@@ -157,6 +159,7 @@ class InteractiveShellDetector:
         self.login_match_window_sec = float(login_match_window_sec)
         self.cooldown_sec = float(cooldown_sec)
         self.max_flows = int(max_flows)
+        self.evictions = 0
         self.clock = clock
 
         self._flows: Dict[Tuple, _Flow] = {}
@@ -354,11 +357,9 @@ class InteractiveShellDetector:
 
     # ── housekeeping ──────────────────────────────────────────────────────────
     def _cap(self) -> None:
-        if len(self._flows) < self.max_flows:
-            return
-        oldest = sorted(self._flows, key=lambda k: self._flows[k].last_ts)
-        for k in oldest[: len(self._flows) - self.max_flows + 1]:
-            del self._flows[k]
+        # Oldest-by-activity first, in batches: one sort frees ~10% headroom
+        # instead of a full sort on every new flow once the table is full.
+        self.evictions += trim_oldest(self._flows, self.max_flows, lambda f: f.last_ts)
 
     def sweep(self, ts: Optional[float] = None, idle_sec: float = 900.0) -> int:
         """Drop flows that have gone quiet. Returns how many were dropped."""

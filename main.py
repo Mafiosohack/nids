@@ -13,6 +13,7 @@ ML detection is intentionally NOT done here.
 live_ids_v2.py handles flow-based ML and forwards alerts to /alert.
 """
 
+import base64
 import hashlib
 import hmac
 import ipaddress
@@ -32,9 +33,10 @@ from typing import Deque, Dict, List, Optional
 
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
+from starlette.staticfiles import StaticFiles
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, field_validator
 
@@ -57,6 +59,7 @@ from detection.rules import (EXTERNAL_SENSOR_STAGES, KILL_CHAIN_ORDER,
                              coverage_report, resolve_rule)
 from detection.triage import SETTABLE_STATUSES
 from utils import sensor_keys
+from utils.bounded import BoundedDict
 from utils.auth_throttle import LoginThrottle
 
 # ─────────────────────────────────────────────
@@ -728,33 +731,54 @@ PIPELINE = DetectionPipeline(
 # normalises to the same signature as an unfragmented scan.
 defragmenter = ScapyDefragmenter()
 
-# Per-source trackers — all use defaultdict so keys are created on first access.
-# (Port-scan and brute-force tracking now live in PIPELINE; these are the
-#  detectors main.py still owns.)
-ddos_tracker       = defaultdict(lambda: {"timestamps": []})
-syn_tracker        = defaultdict(lambda: {"syn": 0, "ack": 0})
-udp_amp_tracker    = defaultdict(lambda: {"timestamps": []})
+# Per-source trackers. Keys are created on first access (like defaultdict), but
+# every table has a ceiling: the key is usually a source address, the one field
+# an attacker sets for free, and pruning that waits for the same key to return
+# never frees a spoofed one (measured ~1 KB/packet, unbounded). Least recently
+# seen goes first; evictions are counted in GET /status -> state_tables.
+# (Port-scan and brute-force tracking live in PIPELINE; these are the detectors
+#  main.py still owns.)
+TRACKER_MAX_KEYS = int(os.environ.get("NIDS_MAX_TRACKED", "50000"))
+_TRACKERS: Dict[str, BoundedDict] = {}
+
+
+def _tracker(name: str, factory=None, max_keys: Optional[int] = None) -> BoundedDict:
+    t = BoundedDict(factory, max_keys=max_keys or TRACKER_MAX_KEYS, name=name)
+    _TRACKERS[name] = t
+    return t
+
+
+def _inner(factory, max_keys: int = 4096):
+    """Factory for a bounded table nested inside a tracker entry (e.g. the
+    per-destination set of sources: those sources are spoofable too)."""
+    return lambda: BoundedDict(factory, max_keys=max_keys)
+
+
+ddos_tracker       = _tracker("ddos", lambda: {"timestamps": []})
+syn_tracker        = _tracker("syn", lambda: {"syn": 0, "ack": 0})
+udp_amp_tracker    = _tracker("udp_amp", lambda: {"timestamps": []})
 
 # ── Post-compromise trackers ──────────────────
 # src → {(dst, port): last_bruteforce_ts}  — targets this src recently brute-forced
-breach_hot_targets  = defaultdict(dict)
+breach_hot_targets  = _tracker("breach_hot_targets", dict)
 # Pending TCP handshakes: (initiator, target, target_port) → syn_ts
-handshake_tracker: Dict[tuple, float] = {}
+handshake_tracker   = _tracker("handshakes")
 # internal src → {"dests": set(), "timestamps": []}
-lateral_tracker     = defaultdict(lambda: {"dests": set(), "timestamps": []})
+lateral_tracker     = _tracker("lateral", lambda: {"dests": set(), "timestamps": []})
 # internal src → {"bytes": int, "timestamps": [], "top_dst": str}
-exfil_tracker       = defaultdict(lambda: {"bytes": 0, "timestamps": [], "top": None})
+exfil_tracker       = _tracker("exfil", lambda: {"bytes": 0, "timestamps": [], "top": None})
 # src → dst(external) → [connection timestamps]
-beacon_tracker      = defaultdict(lambda: defaultdict(list))
+beacon_tracker      = _tracker("beacon", _inner(list, 1024))
 # internal dst → {"srcs": {src: bytes}, "timestamps": []}
-staging_tracker     = defaultdict(lambda: {"srcs": defaultdict(int), "timestamps": []})
+staging_tracker     = _tracker("staging", lambda: {"srcs": BoundedDict(int, max_keys=4096),
+                                                   "timestamps": []})
 # de-dupe: don't re-fire the same post-compromise verdict every packet
-_recent_pc_alerts: Dict[str, float] = {}
+_recent_pc_alerts   = _tracker("recent_pc_alerts")
 pc_lock             = threading.Lock()
 
 # ── Protocol / trust-boundary trackers ────────
-metadata_tracker    = defaultdict(list)                    # src -> [ts] of IMDS hits
-dns_tracker         = defaultdict(lambda: {"timestamps": []})  # (src,parent) -> ts list
+metadata_tracker    = _tracker("metadata", list)                     # src -> [ts] of IMDS hits
+dns_tracker         = _tracker("dns", lambda: {"timestamps": []})    # (src,parent) -> ts list
 arp_ip_mac: Dict[str, str] = {}                            # ip -> last-seen MAC
 
 # ── Asset inventory + adaptive-baseline trackers ──
@@ -762,12 +786,43 @@ TRUSTED_ARP: Dict[str, str] = {}      # ip -> known-good MAC (from assets.json)
 KNOWN_HOSTS: set = set()              # authorised host IPs
 _rogue_seen: set = set()             # rogue IPs already alerted (de-dupe)
 # dst → {"srcs": {src: set(ports)}, "start": ts}  — distributed-scan aggregation
-distributed_tracker = defaultdict(lambda: {"srcs": defaultdict(set), "start": 0.0})
+distributed_tracker = _tracker("distributed", lambda: {"srcs": BoundedDict(set, max_keys=4096),
+                                                       "start": 0.0})
 # src → {port: last_ts}  — long-horizon slow-scan accumulator
-slowscan_tracker    = defaultdict(dict)
+slowscan_tracker    = _tracker("slowscan", dict)
 # src → EWMA baseline state for connection rate
-baseline_tracker    = defaultdict(lambda: {"ewma": None, "ewvar": 0.0,
-                                           "bucket": None, "count": 0, "samples": 0})
+baseline_tracker    = _tracker("baseline", lambda: {"ewma": None, "ewvar": 0.0,
+                                                    "bucket": None, "count": 0, "samples": 0})
+
+
+def state_table_sizes() -> Dict[str, Dict]:
+    """Every per-key table that spoofed traffic can grow, with its ceiling."""
+    out = {f"main.{k}": t.stats() for k, t in _TRACKERS.items()}
+    ps = PIPELINE.port_scan
+    out["port_scan.handshakes"] = ps._handshakes.stats()
+    out["handshake_verifier"] = PIPELINE.handshakes.stats()
+    out["port_scan.sources"] = {"size": len(ps._state), "limit": ps.max_sources,
+                                "evictions": ps.evictions}
+    sh = PIPELINE.shell
+    out["shell.flows"] = {"size": len(sh._flows), "limit": sh.max_flows,
+                          "evictions": sh.evictions}
+    return out
+
+
+def state_evictions() -> Dict[str, int]:
+    return {k: v["evictions"] for k, v in state_table_sizes().items()}
+
+
+def tracker_limit() -> int:
+    return TRACKER_MAX_KEYS
+
+
+def set_tracker_limit(n: int) -> None:
+    """Change every main.py tracker's ceiling (NIDS_MAX_TRACKED at startup)."""
+    global TRACKER_MAX_KEYS
+    TRACKER_MAX_KEYS = int(n)
+    for t in _TRACKERS.values():
+        t.set_limit(TRACKER_MAX_KEYS)
 
 
 def load_asset_inventory():
@@ -1389,7 +1444,7 @@ def detect_data_staging(src: str, dst: str, plen: int):
     t = staging_tracker[dst]
     t["timestamps"] = _prune(t["timestamps"], STAGING_WINDOW, now)
     if not t["timestamps"]:
-        t["srcs"] = defaultdict(int)
+        t["srcs"] = BoundedDict(int, max_keys=4096)
     t["timestamps"].append(now)
     t["srcs"][src] += plen
     total = sum(t["srcs"].values())
@@ -1403,7 +1458,7 @@ def detect_data_staging(src: str, dst: str, plen: int):
             {"source_hosts": len(t["srcs"]), "megabytes": mb,
              "window_seconds": STAGING_WINDOW},
         )
-        staging_tracker[dst] = {"srcs": defaultdict(int), "timestamps": []}
+        staging_tracker[dst] = {"srcs": BoundedDict(int, max_keys=4096), "timestamps": []}
 
 
 def on_connection_established(initiator: str, target: str, tport: int):
@@ -1567,7 +1622,7 @@ def detect_distributed_scan(src: str, dst: str, port: int):
     now = time.time()
     t = distributed_tracker[dst]
     if now - t["start"] > DISTRIBUTED_WINDOW:
-        t["srcs"] = defaultdict(set)
+        t["srcs"] = BoundedDict(set, max_keys=4096)
         t["start"] = now
     t["srcs"][src].add(port)
     scanning = [s for s, ports in t["srcs"].items() if len(ports) >= DISTRIBUTED_PORTS_MIN]
@@ -1581,7 +1636,7 @@ def detect_distributed_scan(src: str, dst: str, port: int):
             {"target": dst, "source_count": len(scanning),
              "sources": sorted(scanning)[:12], "window_seconds": DISTRIBUTED_WINDOW},
         )
-        distributed_tracker[dst] = {"srcs": defaultdict(set), "start": now}
+        distributed_tracker[dst] = {"srcs": BoundedDict(set, max_keys=4096), "start": now}
 
 
 def detect_slow_scan(src: str, port: int):
@@ -1725,6 +1780,9 @@ def _process_packet(packet):
             # first data segment from a reordered later one, whose mid-stream
             # bytes would otherwise read as cleartext.
             seq=int(getattr(tcp, "seq", 0)),
+            # Acknowledgement number: lets the pipeline check that an exploit
+            # payload's sender really holds the connection (anti-framing).
+            ack_num=int(getattr(tcp, "ack", 0)),
             fragment_count=fragment_count,
             is_outbound=(is_internal(src) and not is_internal(dst)),
         )
@@ -1867,21 +1925,70 @@ def _get_validated_session(token: str) -> Optional[dict]:
     return dict(row)
 
 
+# The dashboard's session lives in an HttpOnly cookie: script on the page -
+# including script that should never have been there - cannot read it. API
+# clients (curl, scripts, sensors' operators) keep using Authorization: Bearer.
+SESSION_COOKIE = "nids_session"
+_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+def session_cookie_params(scheme: str) -> Dict:
+    """Secure only over HTTPS: under NIDS_INSECURE_HTTP a Secure cookie is never
+    stored, and login would loop back to the login screen without saying why."""
+    return {"httponly": True, "samesite": "strict", "path": "/",
+            "secure": scheme == "https", "max_age": TOKEN_EXPIRY_HOURS * 3600}
+
+
+def _own_origin(request: Request) -> str:
+    return f"{request.url.scheme}://{request.headers.get('host', '')}".lower()
+
+
+def _same_origin_write(request: Request) -> bool:
+    """CSRF check for cookie-authenticated writes. SameSite=Strict already stops
+    other sites, but "site" ignores the port: another service on this IP (or a
+    page it serves) is same-site and would ride the cookie. Origin is exact."""
+    allowed = {_own_origin(request)} | {o.strip().lower() for o in ALLOWED_ORIGINS}
+    origin = request.headers.get("origin")
+    if origin:
+        return origin.lower() in allowed
+    referer = (request.headers.get("referer") or "").lower()
+    return any(referer.startswith(o + "/") for o in allowed)
+
+
+def request_token(request: Request,
+                  credentials: Optional[HTTPAuthorizationCredentials]) -> Optional[str]:
+    """The session token for this request, from the bearer header or, failing
+    that, the session cookie. A cookie-carried write must pass the origin check
+    (a bearer header is never attached cross-site by a browser on its own)."""
+    if credentials is not None:
+        return credentials.credentials
+    token = request.cookies.get(SESSION_COOKIE)
+    if token and request.method not in _SAFE_METHODS and not _same_origin_write(request):
+        raise HTTPException(
+            status_code=403,
+            detail="Cross-origin request refused: a cookie session only accepts "
+                   "changes from the dashboard's own page. Scripts should send "
+                   "Authorization: Bearer <token> instead.")
+    return token
+
+
 def require_auth(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
 ) -> dict:
     """
-    Validates bearer token. Returns session dict with keys:
-      username, role, expires_at
-    Raises 401 if missing / invalid / expired.
+    Validates the session (bearer token, or the dashboard's cookie). Returns
+    session dict with keys: username, role, expires_at
+    Raises 401 if missing / invalid / expired, 403 on a cross-origin cookie write.
     """
-    if credentials is None:
+    token = request_token(request, credentials)
+    if not token:
         raise HTTPException(
             status_code=401,
             detail="Authentication required.",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    session = _get_validated_session(credentials.credentials)
+    session = _get_validated_session(token)
     if session is None:
         raise HTTPException(
             status_code=401,
@@ -1967,6 +2074,33 @@ app = FastAPI(
     description="Real-Time Network Intrusion Detection System — Rule-Based Engine",
     version="3.0.0",
 )
+
+# Headers every response carries. No HSTS, deliberately: with the self-signed
+# certificate it would make browsers refuse the one-time click-through, and the
+# operator could not reach the dashboard at all.
+_BASE_HEADERS = {
+    "X-Content-Type-Options": "nosniff",   # a JSON alert is never run as HTML/JS
+    "Referrer-Policy":        "no-referrer",
+    "X-Frame-Options":        "DENY",      # no clickjacking "Clear Alerts"
+}
+
+
+@app.middleware("http")
+async def _security_headers(request: Request, call_next):
+    response = await call_next(request)
+    for k, v in _BASE_HEADERS.items():
+        response.headers.setdefault(k, v)
+    if not request.url.path.startswith("/static/"):
+        # Alerts, users and the audit log are not for the browser's disk cache.
+        response.headers.setdefault("Cache-Control", "no-store")
+    return response
+
+
+# Vendored front-end code (Chart.js). Served from here so the dashboard runs no
+# script from another host. StaticFiles refuses paths that leave the directory.
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR), check_dir=False),
+          name="static")
 
 app.add_middleware(
     CORSMiddleware,
@@ -2079,8 +2213,9 @@ def _client_ip(request: Request) -> str:
 
 
 @app.post("/auth/login", tags=["Auth"])
-def login(payload: LoginRequest, request: Request):
-    """Exchange username + password for a bearer token."""
+def login(payload: LoginRequest, request: Request, response: Response):
+    """Exchange username + password for a session: an HttpOnly cookie for the
+    dashboard, and the same token in the body for API clients."""
     ip = _client_ip(request)
     # Throttle BEFORE checking the password. Checked after, a throttled
     # attacker who guesses right would still get in - the throttle would only
@@ -2111,6 +2246,7 @@ def login(payload: LoginRequest, request: Request):
         print(f"[AUTH] Upgraded password hash for {payload.username} to PBKDF2.")
 
     token = db_create_session(payload.username, user["role"])
+    response.set_cookie(SESSION_COOKIE, token, **session_cookie_params(request.url.scheme))
     audit(payload.username, "login", payload.username, ip=ip)
     print(f"[AUTH] Login: {payload.username} (role={user['role']})")
     return {
@@ -2123,13 +2259,26 @@ def login(payload: LoginRequest, request: Request):
 
 @app.post("/auth/logout", tags=["Auth"])
 def logout(
+    request: Request,
+    response: Response,
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     session: dict = Depends(require_auth),
 ):
-    db_revoke_session(credentials.credentials)
+    db_revoke_session(request_token(request, credentials))
+    p = session_cookie_params(request.url.scheme)
+    response.delete_cookie(SESSION_COOKIE, path=p["path"], secure=p["secure"],
+                           httponly=True, samesite="strict")
     audit(session["username"], "logout", session["username"])
     print(f"[AUTH] Logout: {session['username']}")
     return {"status": "logged out"}
+
+
+@app.get("/auth/session", tags=["Auth"])
+def current_session(session: dict = Depends(require_auth)):
+    """Who this session belongs to. The dashboard cannot read its own cookie,
+    so after a reload it asks here instead of keeping a copy in web storage."""
+    return {"username": session["username"], "role": session["role"],
+            "expires_at": session["expires_at"]}
 
 
 @app.post("/auth/change-password", tags=["Auth"])
@@ -2158,7 +2307,8 @@ def change_password(
             "UPDATE users SET password = ? WHERE username = ?",
             (_hash_password(payload.new_password), session["username"]),
         )
-    ended = db_revoke_other_sessions(session["username"], credentials.credentials)
+    ended = db_revoke_other_sessions(session["username"],
+                                     request_token(request, credentials))
     audit(session["username"], "password_change", session["username"],
           f"{ended} other session(s) ended", ip=_client_ip(request))
     print(f"[AUTH] Password changed: {session['username']} "
@@ -2280,6 +2430,7 @@ def status(session: dict = Depends(require_auth)):
         "uptime_seconds":   uptime,
         "interface":        NETWORK_INTERFACE or "auto",
         "sniffer_error":    system_stats["sniffer_error"],
+        "state_tables":      state_table_sizes(),
         "packet_errors":    system_stats["packet_errors"],
         "last_packet_error": system_stats["last_packet_error"],
         "available_interfaces": list_interfaces(),
@@ -2689,7 +2840,38 @@ def serve_dashboard():
             """,
             status_code=404,
         )
-    return HTMLResponse(content=dashboard.read_text(encoding="utf-8"))
+    html = dashboard.read_text(encoding="utf-8")
+    return HTMLResponse(content=html,
+                        headers={"Content-Security-Policy": dashboard_csp(html)})
+
+
+_INLINE_SCRIPT = re.compile(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", re.S)
+
+
+def dashboard_csp(html: str) -> str:
+    """CSP for the dashboard. Its inline script is allowed by SHA-256, computed
+    from the file being served, so editing the dashboard never needs a policy
+    update - and a script that is not byte-for-byte ours (an injection) has a
+    different hash and does not run. Inline event handlers are not allowed at
+    all; the page binds its buttons from script.
+
+    style-src keeps 'unsafe-inline' (40 style="" attributes). Injected CSS can
+    restyle the page but not run code or read the session; tightening it is
+    not worth what it would cost in churn here."""
+    hashes = " ".join(
+        "'sha256-" + base64.b64encode(hashlib.sha256(b.encode("utf-8")).digest()).decode() + "'"
+        for b in _INLINE_SCRIPT.findall(html))
+    return "; ".join([
+        "default-src 'none'",
+        f"script-src 'self' {hashes}".strip(),
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+        "font-src https://fonts.gstatic.com",
+        "img-src 'self' data:",
+        "connect-src 'self'",
+        "frame-ancestors 'none'",
+        "base-uri 'none'",
+        "form-action 'none'",
+    ])
 
 
 @app.post("/alert", tags=["Alerts"])

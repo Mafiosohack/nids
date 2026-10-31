@@ -70,6 +70,8 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Dict, Iterable, Optional, Set, Tuple
 
+from utils.bounded import trim_oldest
+
 from .findings import Finding
 
 # Ports where a TLS handshake is the convention, not merely one option. Ports
@@ -152,6 +154,7 @@ class TLSPortInspector:
                                                         else DEFAULT_TLS_PORTS))
         self.cooldown_sec = float(cooldown_sec)
         self.max_flows = int(max_flows)
+        self.evictions = 0
         self.clock = clock
         # Keyed in the CLIENT->SERVER orientation, so a server's reply simply
         # fails the lookup and is ignored without an explicit direction test.
@@ -256,11 +259,8 @@ class TLSPortInspector:
 
     # ── housekeeping ──────────────────────────────────────────────────────────
     def _cap(self) -> None:
-        if len(self._pending) < self.max_flows:
-            return
-        oldest = sorted(self._pending, key=lambda k: self._pending[k].opened_ts)
-        for k in oldest[: len(self._pending) - self.max_flows + 1]:
-            del self._pending[k]
+        # Batched oldest-first eviction; see utils.bounded.trim_oldest.
+        self.evictions += trim_oldest(self._pending, self.max_flows, lambda f: f.opened_ts)
 
     def sweep(self, ts: Optional[float] = None, idle_sec: float = 300.0) -> int:
         """Drop flows that opened but never sent data. Returns how many were dropped."""

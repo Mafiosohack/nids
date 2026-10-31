@@ -34,6 +34,7 @@ from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple
 
 from .correlation import CorrelationEngine, CorrelationEvent
 from .exploit_tier1 import Tier1Engine
+from .handshake import HandshakeVerifier
 from .exploit_tier2 import (BeaconDetector, ListeningPortMonitor,
                             OutboundAnomalyDetector)
 from .findings import Finding
@@ -123,6 +124,9 @@ class DetectionPipeline:
             window_sec=self.cfg.bruteforce_window_sec,
             rate_split=self.cfg.bruteforce_rate_split, clock=clock)
         self.tier1 = Tier1Engine(clock=clock)
+        # Who really holds a TCP connection - decides whether an exploit
+        # payload may name its source in an incident.
+        self.handshakes = HandshakeVerifier()
         self.outbound = OutboundAnomalyDetector(
             monitored_hosts=self.cfg.monitored_servers,
             baseline=self.cfg.outbound_baseline,
@@ -160,6 +164,7 @@ class DetectionPipeline:
         is_outbound: bool = False,
         payload_len: Optional[int] = None,
         seq: Optional[int] = None,
+        ack_num: Optional[int] = None,
     ) -> List[dict]:
         """Run every TCP rule. Returns the alerts published for this packet.
 
@@ -174,6 +179,7 @@ class DetectionPipeline:
         now = self.clock() if ts is None else ts
         flags = int(flags)
         syn, ack, rst = bool(flags & SYN), bool(flags & ACK), bool(flags & RST)
+        self.handshakes.observe(src, dst, sport, dport, flags, seq, ack_num)
         payload_len = len(payload) if payload_len is None else int(payload_len)
         tier1_hits: List[Finding] = []
         tier2_hits: List[Finding] = []
@@ -259,6 +265,7 @@ class DetectionPipeline:
         if payload:
             for f in self.tier1.inspect_payload(src, dst, sport, dport, payload,
                                                 ts=now):
+                self._check_source(f, src, dst, sport, dport, ack_num)
                 tier1_hits.append(f)
                 if f.stage == "initial_access":
                     # Gives the bind-shell rule its "after exploit traffic" context.
@@ -371,6 +378,20 @@ class DetectionPipeline:
         if res.intrusion_confirmed:
             self._publish_intrusion(res.incident, now)
 
+    def _check_source(self, f: Finding, src: str, dst: str, sport: int, dport: int,
+                      ack_num: Optional[int]) -> None:
+        """An exploit payload names its source as the attacker. If this sensor
+        cannot verify that source holds the connection, the alert stands (the
+        payload WAS on the wire) but the name is not trusted: it is kept out of
+        correlation, so forged packets cannot escalate an innocent host to
+        ACTIVE_INTRUSION. The analyst sees why."""
+        ok, why = self.handshakes.verify(src, dst, sport, dport, ack_num)
+        f.details["source_verified"] = ok
+        f.details["source_check"] = why
+        if not ok:
+            f.src_semantics_override = "unknown"
+            f.message = f"{f.message} [source not verified: {why}]"
+
     def _publish_incident(self, inc: dict, reason: str, now: float) -> None:
         self.incidents_opened.append(inc)
         stages = [s["label"] for s in inc["stages"]]
@@ -443,6 +464,7 @@ class DetectionPipeline:
         self.port_scan.reset()
         self.brute_force.reset()
         self.tier1.reset()
+        self.handshakes.reset()
         self.outbound.reset()
         self.listening.reset()
         self.beacon.reset()

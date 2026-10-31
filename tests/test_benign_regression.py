@@ -208,6 +208,22 @@ class TestNormalSshSession(BenignScenario):
         self.assert_clean("8-hour SSH session")
 
 
+def _exploit_over_real_connection(pipe, client, server, cport, sport, payload, ts):
+    """An exploit as it really crosses the wire: handshake first, then a payload
+    that acknowledges the server's sequence number. Since the 2026-10-31
+    anti-framing change, a payload with no handshake still alerts but is not
+    attributed in correlation - it is indistinguishable from a forgery."""
+    c_isn, s_isn = 1000, 900000
+    pipe.on_tcp_packet(client, server, cport, sport, SYN, ts=ts - 0.003,
+                       seq=c_isn, ack_num=0)
+    pipe.on_tcp_packet(server, client, sport, cport, SYN | ACK, ts=ts - 0.002,
+                       seq=s_isn, ack_num=c_isn + 1)
+    pipe.on_tcp_packet(client, server, cport, sport, ACK, ts=ts - 0.001,
+                       seq=c_isn + 1, ack_num=s_isn + 1)
+    pipe.on_tcp_packet(client, server, cport, sport, PSH | ACK, payload=payload,
+                       ts=ts, seq=c_isn + 1, ack_num=s_isn + 1)
+
+
 class TestCorrelationFeedback(unittest.TestCase):
     """Correlation output must not become correlation input."""
 
@@ -218,8 +234,8 @@ class TestCorrelationFeedback(unittest.TestCase):
         for i, port in enumerate([21, 22, 23, 25, 80, 445, 3306]):
             pipe.on_tcp_packet(WORKSTATION, SERVER, 60000 + i, port, SYN,
                                ts=t + i * 0.1)
-        pipe.on_tcp_packet(WORKSTATION, SERVER, 60100, 21, PSH | ACK,
-                           payload=b"USER pwn:)\r\n", ts=t + 10)
+        _exploit_over_real_connection(pipe, WORKSTATION, SERVER, 60100, 21,
+                                      b"USER pwn:)\r\n", ts=t + 10)
 
         self.assertEqual(pipe.correlator.incident_count(), 1)
         inc = pipe.correlator.incidents()[0]
@@ -244,8 +260,8 @@ class TestBenignSuiteIntegrity(unittest.TestCase):
         for i, port in enumerate([21, 22, 23, 25, 80, 445, 3306]):
             pipe.on_tcp_packet(WORKSTATION, SERVER, 60000 + i, port, SYN,
                                ts=t + i * 0.1)
-        pipe.on_tcp_packet(WORKSTATION, SERVER, 60100, 21, PSH | ACK,
-                           payload=b"USER pwn:)\r\n", ts=t + 10)
+        _exploit_over_real_connection(pipe, WORKSTATION, SERVER, 60100, 21,
+                                      b"USER pwn:)\r\n", ts=t + 10)
         pipe.on_tcp_packet(SERVER, "203.0.113.9", 40000, 4444, SYN, ts=t + 20)
 
         self.assertTrue(pipe.alerts_above("info"),

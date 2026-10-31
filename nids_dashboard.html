@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>NIDS://SOC MONITOR</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="static/vendor/chart.umd.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet"/>
 <style>
 :root {
@@ -393,7 +393,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
       <label>PASSWORD</label>
       <input type="password" id="login-pass" placeholder="Enter password" autocomplete="current-password"/>
     </div>
-    <button class="login-btn" id="login-btn" onclick="doLogin()">AUTHENTICATE</button>
+    <button class="login-btn" id="login-btn" data-action="doLogin">AUTHENTICATE</button>
     <div class="login-hint">Session expires after 8 hours.</div>
   </div>
 </div>
@@ -421,7 +421,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
     <div class="session-chip" id="session-chip" style="display:none">
       <span id="session-user"></span>
       <span class="role-badge" id="role-badge"></span>
-      <button class="btn btn-neutral" style="padding:3px 8px;font-size:9px;" onclick="doLogout()">LOGOUT</button>
+      <button class="btn btn-neutral" style="padding:3px 8px;font-size:9px;" data-action="doLogout">LOGOUT</button>
     </div>
     <div class="api-chip offline" id="api-chip">API OFFLINE</div>
   </div>
@@ -490,13 +490,13 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
       </div>
       <div class="q-bar">
         <div class="q-tabs" role="tablist" aria-label="Triage status">
-          <button class="q-tab on" role="tab" aria-selected="true" data-tab="new" onclick="setQueueTab('new')">Needs review <span class="q-n" id="qn-new">0</span></button>
-          <button class="q-tab" role="tab" aria-selected="false" data-tab="confirmed" onclick="setQueueTab('confirmed')">Confirmed <span class="q-n" id="qn-confirmed">0</span></button>
-          <button class="q-tab" role="tab" aria-selected="false" data-tab="false_positive" onclick="setQueueTab('false_positive')">False positive <span class="q-n" id="qn-false_positive">0</span></button>
-          <button class="q-tab" role="tab" aria-selected="false" data-tab="resolved" onclick="setQueueTab('resolved')">Resolved <span class="q-n" id="qn-resolved">0</span></button>
-          <button class="q-tab" role="tab" aria-selected="false" data-tab="all" onclick="setQueueTab('all')">All</button>
+          <button class="q-tab on" role="tab" aria-selected="true" data-tab="new" data-action="setQueueTab" data-arg="new">Needs review <span class="q-n" id="qn-new">0</span></button>
+          <button class="q-tab" role="tab" aria-selected="false" data-tab="confirmed" data-action="setQueueTab" data-arg="confirmed">Confirmed <span class="q-n" id="qn-confirmed">0</span></button>
+          <button class="q-tab" role="tab" aria-selected="false" data-tab="false_positive" data-action="setQueueTab" data-arg="false_positive">False positive <span class="q-n" id="qn-false_positive">0</span></button>
+          <button class="q-tab" role="tab" aria-selected="false" data-tab="resolved" data-action="setQueueTab" data-arg="resolved">Resolved <span class="q-n" id="qn-resolved">0</span></button>
+          <button class="q-tab" role="tab" aria-selected="false" data-tab="all" data-action="setQueueTab" data-arg="all">All</button>
         </div>
-        <button class="q-filter hidden" id="q-filter" onclick="setIpFilter(null)" title="Clear the IP filter"></button>
+        <button class="q-filter hidden" id="q-filter" data-action="clearIpFilter" title="Clear the IP filter"></button>
       </div>
       <div class="panel-body" style="padding:8px"><div class="alerts-container" id="alerts-list"><div class="no-alerts-msg">Authenticating…</div></div></div>
     </div>
@@ -572,13 +572,13 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
     <div class="panel-header"><span class="panel-title">System Controls</span><span class="last-action" id="last-action">—</span></div>
     <div class="panel-body">
       <div class="ctrl-row">
-        <button class="btn btn-blue" onclick="manualRefresh()">↺ Refresh</button>
-        <button class="btn btn-teal admin-only" onclick="startSniffer()">▶ Start Sniffer</button>
-        <button class="btn btn-neutral admin-only" onclick="stopSniffer()">■ Stop Sniffer</button>
-        <button class="btn btn-amber analyst-up" onclick="exportAlerts()">↓ Export CSV</button>
-        <button class="btn btn-purple admin-only" onclick="toggleUserPanel()">👤 Manage Users</button>
+        <button class="btn btn-blue" data-action="manualRefresh">↺ Refresh</button>
+        <button class="btn btn-teal admin-only" data-action="startSniffer">▶ Start Sniffer</button>
+        <button class="btn btn-neutral admin-only" data-action="stopSniffer">■ Stop Sniffer</button>
+        <button class="btn btn-amber analyst-up" data-action="exportAlerts">↓ Export CSV</button>
+        <button class="btn btn-purple admin-only" data-action="toggleUserPanel">👤 Manage Users</button>
         <!-- The one irreversible control, set apart from the routine ones. -->
-        <button class="btn btn-danger admin-only" style="margin-left:auto" onclick="clearAlerts()">🗑 Clear Alerts</button>
+        <button class="btn btn-danger admin-only" style="margin-left:auto" data-action="clearAlerts">🗑 Clear Alerts</button>
       </div>
     </div>
   </div>
@@ -598,7 +598,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
           <option value="analyst">Analyst</option>
           <option value="admin">Admin</option>
         </select>
-        <button class="btn btn-green" onclick="createUser()">+ Add User</button>
+        <button class="btn btn-green" data-action="createUser">+ Add User</button>
       </div>
       <div style="margin-top:12px">
         <table class="user-table">
@@ -612,14 +612,14 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 </div>
 
 <!-- MODAL -->
-<div class="modal-overlay" id="modal" onclick="handleModalClick(event)">
+<div class="modal-overlay" id="modal" data-action="modalBackdrop">
   <div class="modal-box">
     <div class="modal-head">
       <div class="modal-head-left">
         <span class="modal-sev" id="m-sev">HIGH</span>
         <div><div class="modal-title" id="m-title">Alert Detail</div><div class="modal-ts" id="m-ts">—</div></div>
       </div>
-      <button class="btn-close" onclick="closeModal()">✕ Close</button>
+      <button class="btn-close" data-action="closeModal">✕ Close</button>
     </div>
     <div class="modal-body">
       <div>
@@ -672,10 +672,10 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
         <div class="m-tri-btns">
           <!-- Verdicts are neutral on purpose: a green "False positive" button
                reads as the safe, approved choice and nudges the analyst toward it. -->
-          <button class="btn btn-neutral" onclick="submitTriage('confirmed')">Confirmed — real</button>
-          <button class="btn btn-neutral" onclick="submitTriage('false_positive')">False positive</button>
-          <button class="btn btn-neutral" onclick="submitTriage('resolved')">Resolved</button>
-          <button class="btn btn-neutral" id="m-tri-reopen" onclick="submitTriage('new')">Back to queue</button>
+          <button class="btn btn-neutral" data-action="submitTriage" data-arg="confirmed">Confirmed — real</button>
+          <button class="btn btn-neutral" data-action="submitTriage" data-arg="false_positive">False positive</button>
+          <button class="btn btn-neutral" data-action="submitTriage" data-arg="resolved">Resolved</button>
+          <button class="btn btn-neutral" id="m-tri-reopen" data-action="submitTriage" data-arg="new">Back to queue</button>
         </div>
       </div>
     </div>
@@ -731,6 +731,11 @@ const DEDUP_MS  = 60_000;
 /* ═══════════════════════════════════════════
    AUTH STATE
 ═══════════════════════════════════════════ */
+// Served over http(s): the session is an HttpOnly cookie this script cannot
+// read - so an injected script cannot steal it either. Opened as a local file
+// (file://, with ?api=), cookies cannot cross origins, so the token is held in
+// memory only: never in web storage, gone when the tab closes.
+const COOKIE_SESSION = location.protocol === 'http:' || location.protocol === 'https:';
 let authToken   = null;
 let currentUser = null;
 let currentRole = null;
@@ -817,12 +822,9 @@ async function doLogin() {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({username, password})
     }).then(r => { if(!r.ok) throw new Error('Invalid credentials'); return r.json(); });
-    authToken   = data.token;
+    authToken   = COOKIE_SESSION ? null : data.token;
     currentUser = data.username;
     currentRole = data.role;
-    sessionStorage.setItem('nids_token', authToken);
-    sessionStorage.setItem('nids_user',  currentUser);
-    sessionStorage.setItem('nids_role',  currentRole);
     onLoginSuccess();
   } catch(e) {
     errEl.textContent = 'Invalid username or password.';
@@ -835,7 +837,6 @@ async function doLogin() {
 async function doLogout() {
   try { await apiFetch('/auth/logout', {method:'POST'}); } catch(_) {}
   authToken=null; currentUser=null; currentRole=null;
-  sessionStorage.clear();
   allAlerts=[]; lastAlertIds=new Set();
   queueAlerts=[]; queueSig=''; lastSummary=null; lastIncidents=null;
   [...xpCards.keys()].forEach(dismissExploit); xpSeen.clear(); xpCooldown.clear();
@@ -848,21 +849,18 @@ async function doLogout() {
 
 function handleSessionExpired() {
   authToken=null; currentUser=null; currentRole=null;
-  sessionStorage.clear();
   pollIntervals.forEach(clearInterval); pollIntervals=[];
   showLoginScreen();
   toast('Session Expired','Please log in again.','warn');
 }
 
 async function checkExistingSession() {
-  const t = sessionStorage.getItem('nids_token');
-  const u = sessionStorage.getItem('nids_user');
-  const r = sessionStorage.getItem('nids_role');
-  if (!t) { showLoginScreen(); return; }
+  if (!COOKIE_SESSION) { showLoginScreen(); return; }
   try {
-    const resp = await fetch(API+'/status', {headers:{'Authorization':'Bearer '+t}});
+    const resp = await fetch(API+'/auth/session');
     if (resp.ok) {
-      authToken=t; currentUser=u; currentRole=r;
+      const s = await resp.json();
+      currentUser=s.username; currentRole=s.role;
       onLoginSuccess();
     } else { showLoginScreen(); }
   } catch(_) { showLoginScreen(); }
@@ -1765,6 +1763,33 @@ function dismissExploit(src) {
 
 function closeModal() { el('modal').classList.remove('open'); document.body.style.overflow=''; modalGroup=null; }
 function handleModalClick(e) { if(e.target.id==='modal') closeModal(); }
+
+/* Buttons name an action; this one listener runs it. The CSP forbids inline
+   onclick="..." (allowing it would let injected markup run code too), and a
+   fixed table means markup can only ever trigger these functions. */
+const ACTIONS = {
+  doLogin:         () => doLogin(),
+  doLogout:        () => doLogout(),
+  setQueueTab:     (arg) => setQueueTab(arg),
+  clearIpFilter:   () => setIpFilter(null),
+  manualRefresh:   () => manualRefresh(),
+  startSniffer:    () => startSniffer(),
+  stopSniffer:     () => stopSniffer(),
+  exportAlerts:    () => exportAlerts(),
+  toggleUserPanel: () => toggleUserPanel(),
+  clearAlerts:     () => clearAlerts(),
+  createUser:      () => createUser(),
+  modalBackdrop:   (arg, e) => handleModalClick(e),
+  closeModal:      () => closeModal(),
+  submitTriage:    (arg) => submitTriage(arg),
+};
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-action]');
+  if (!t) return;
+  const fn = Object.prototype.hasOwnProperty.call(ACTIONS, t.dataset.action)
+    ? ACTIONS[t.dataset.action] : null;
+  if (fn) fn(t.dataset.arg, e);
+});
 
 /* ═══════════════════════════════════════════
    UTILS

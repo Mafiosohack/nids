@@ -123,6 +123,40 @@ against the one main.py printed.
 
 ---
 
+## Changed 2026-10-31: the browser boundary (CSP + HttpOnly session)
+
+Escaping what the dashboard renders fixed the injections that were found. These
+two layers are for the next one nobody has found yet.
+
+**Content-Security-Policy.** The dashboard's inline script is allowed by its
+SHA-256, computed by `main.py` from the file it is serving - edit the dashboard
+freely, the policy follows. A script that is not byte-for-byte ours (an
+injection) has a different hash and does not run. Inline `onclick="..."`
+handlers are gone: buttons name an action (`data-action`) and one listener runs
+it from a fixed table. Chart.js is served from `static/vendor/` (provenance in
+its README), so no third-party host can change the code your console runs.
+`style-src` still allows inline styles: injected CSS can restyle the page but
+cannot run code or read the session, and removing 40 `style=""` attributes was
+not worth the churn.
+
+**HttpOnly session cookie.** The browser session is a cookie page script cannot
+read (`HttpOnly; SameSite=Strict`, `Secure` over HTTPS), so even a script that
+did run cannot carry the token off. The cookie brings CSRF, so a
+cookie-authenticated change must come from the dashboard's own origin -
+`SameSite` alone treats another service on the same IP at a different port as
+the same site. API clients are unchanged: `Authorization: Bearer <token>` from
+`/auth/login` works as before and needs no Origin.
+
+**Deliberately not set: HSTS.** With a self-signed certificate it would make
+browsers refuse the one-time click-through, locking the operator out.
+
+**Local-file mode** (`nids_dashboard.html?api=...` opened from disk) cannot use
+the cookie across origins, so it keeps the token in memory only - never in web
+storage, gone when the tab closes - and gets no CSP (there is no server
+response to carry one).
+
+---
+
 ## Files that must never be committed
 
 `.gitignore` enforces these. The reasoning matters more than the list:

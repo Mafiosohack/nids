@@ -63,6 +63,7 @@ class LiveServer:
                 raise RuntimeError("test server did not start")
             time.sleep(0.02)
         self.port = self.server.servers[0].sockets[0].getsockname()[1]
+        self.stalls = []        # (path, reason) for every get_large() retry
         return self
 
     def __exit__(self, *exc):
@@ -78,7 +79,8 @@ class LiveServer:
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     # ── HTTP ──────────────────────────────────────────────────────────────────
-    def request(self, method, path, body=None, headers=None, token=None):
+    def request(self, method, path, body=None, headers=None, token=None,
+                timeout=15):
         h = {"Content-Type": "application/json"}
         h.update(headers or {})
         if token:
@@ -87,13 +89,41 @@ class LiveServer:
         req = urllib.request.Request(f"http://127.0.0.1:{self.port}{path}",
                                      data=data, headers=h, method=method)
         try:
-            with urllib.request.urlopen(req, timeout=15) as r:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
                 return Response(r.status, r.read(), dict(r.headers))
         except urllib.error.HTTPError as e:
             return Response(e.code, e.read(), dict(e.headers))
 
     def get(self, path, **kw):
         return self.request("GET", path, **kw)
+
+    def get_large(self, path, attempts=4, timeout=4, **kw):
+        """GET for bodies over ~64 KB (the dashboard, vendored JS).
+
+        Measured 2026-10-31 on the dev box: about 1 in 10 such transfers over
+        loopback hangs after the first ~64 KB receive window. It does it
+        identically with uvicorn, stdlib http.server and a raw socket client,
+        so it is outside this app; AVG's network filter is the running
+        suspect. A GET is safe to repeat, so retry with a short timeout -
+        and report every retry on stderr and in self.stalls, never silently.
+        Small JSON responses never stall and keep using get()."""
+        import http.client
+        import socket
+        import sys
+        reasons = []
+        for _ in range(attempts):
+            try:
+                return self.request("GET", path, timeout=timeout, **kw)
+            except (socket.timeout, TimeoutError, ConnectionResetError,
+                    http.client.IncompleteRead) as e:
+                reasons.append(type(e).__name__)
+                self.stalls.append((path, type(e).__name__))
+                print(f"[apiharness] GET {path} stalled ({type(e).__name__}); "
+                      f"retrying - see get_large()", file=sys.stderr)
+        raise AssertionError(
+            f"GET {path} stalled on all {attempts} attempts ({reasons}). "
+            "Not seen from the app itself; check the local network filter "
+            "(AVG Web Shield) before suspecting the server.")
 
     def post(self, path, body=None, **kw):
         return self.request("POST", path, body=body, **kw)

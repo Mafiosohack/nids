@@ -17,6 +17,8 @@ What changed and why:
 import time
 from typing import Callable, Dict, List, Optional, Tuple
 
+from utils.bounded import BoundedDict, trim_oldest
+
 from .findings import Finding
 
 # ── TCP flag bits ─────────────────────────────────────────────────────────────
@@ -115,18 +117,21 @@ class PortScanDetector:
         self.cooldown_sec = float(cooldown_sec)
         self.max_sources = int(max_sources)
         self.clock = clock
+        self.evictions = 0
         # src -> {"ports": {port: ts}, "completed": set, "reset": set,
         #         "first": ts, "last_alert": ts}
         self._state: Dict[str, dict] = {}
-        # (client, server, port) -> "syn" | "synack"
-        self._handshakes: Dict[Tuple[str, str, int], str] = {}
+        # (client, server, port) -> "syn" | "synack". Bounded: every spoofed SYN
+        # adds a key that no real handshake will ever complete and remove.
+        self._handshakes = BoundedDict(None, max_keys=4 * self.max_sources,
+                                       name="port_scan.handshakes")
 
     def _st(self, src: str) -> dict:
         st = self._state.get(src)
         if st is None:
-            if len(self._state) >= self.max_sources:
-                oldest = min(self._state, key=lambda s: self._state[s]["first"])
-                del self._state[oldest]
+            # Oldest scan window first, batched (was a full min() per new source).
+            self.evictions += trim_oldest(self._state, self.max_sources,
+                                          lambda s: s["first"])
             st = {"ports": {}, "completed": set(), "reset": set(),
                   "first": 0.0, "last_alert": 0.0, "dst": None}
             self._state[src] = st
@@ -260,6 +265,7 @@ class BruteForceDetector:
         self.cooldown_sec = float(cooldown_sec)
         self.ports = set(ports) if ports else set(DEFAULT_BRUTEFORCE_PORTS)
         self.max_keys = int(max_keys)
+        self.evictions = 0
         self.clock = clock
         self._attempts: Dict[Tuple[str, str, int], List[float]] = {}
         self._last_alert: Dict[Tuple[str, str, int], float] = {}
@@ -313,12 +319,11 @@ class BruteForceDetector:
         )
 
     def _cap(self) -> None:
-        if len(self._attempts) <= self.max_keys:
-            return
-        oldest = sorted(self._attempts, key=lambda k: self._attempts[k][-1])
-        for k in oldest[: len(self._attempts) - self.max_keys]:
-            del self._attempts[k]
-            self._last_alert.pop(k, None)
+        # Least recently attempted first, batched; called after an insert, so
+        # trigger one past the ceiling as before.
+        self.evictions += trim_oldest(self._attempts, self.max_keys + 1,
+                                      lambda ts: ts[-1],
+                                      on_evict=lambda k: self._last_alert.pop(k, None))
 
     def reset(self) -> None:
         self._attempts.clear()
