@@ -15,9 +15,11 @@ live_ids_v2.py handles flow-based ML and forwards alerts to /alert.
 
 import hashlib
 import hmac
+import ipaddress
 import json
 import math
 import os
+import re
 import secrets
 import sqlite3
 import sys
@@ -34,7 +36,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 try:
     from scapy.all import ARP, DNS, ICMP, IP, TCP, UDP, sniff
@@ -51,8 +53,11 @@ from detection.pipeline import DetectionPipeline, PipelineConfig
 from detection.reassembly import ScapyDefragmenter
 from detection.response import playbook as response_playbook
 from detection.rules import (EXTERNAL_SENSOR_STAGES, KILL_CHAIN_ORDER,
-                             STAGE_LABELS, coverage_report, resolve_rule)
+                             SENSOR_ALERT_TYPES, SEVERITY_ORDER, STAGE_LABELS,
+                             coverage_report, resolve_rule)
 from detection.triage import SETTABLE_STATUSES
+from utils import sensor_keys
+from utils.auth_throttle import LoginThrottle
 
 # ─────────────────────────────────────────────
 #  CONFIG  (tune these to your environment)
@@ -231,19 +236,18 @@ BASELINE_MIN_COUNT      = 20     # ignore trivially small buckets (noise floor)
 # ─────────────────────────────────────────────
 #  AUTH CONFIG
 # ─────────────────────────────────────────────
-_DEFAULT_SENSOR_KEY = "sensor-key-change-me-in-production"
-
-# Sensor pre-shared key — override in production via env NIDS_SENSOR_KEY
-# (must match SENSOR_API_KEY in the sensors). Falls back to the shared default.
+# Sensor identity: one key per sensor, each scoped to the alert types that
+# sensor exists to report (utils/sensor_keys.py). Generated on first start into
+# SENSOR_KEYS_PATH; local sensors read their key from it by name.
 #
-# This one stays a fixed default on purpose: main.py and the three sensors
-# (live_ids_v2 / host_log_sensor / cloud_log_sensor) must agree on it, and
-# randomising it here would silently break every sensor that was not restarted
-# with the new value. Knowing this key only lets someone POST fake alerts — it
-# does not read them, which needs a user session — so on an isolated lab segment
-# the exposure is alert injection, not disclosure. On any routable network,
-# set NIDS_SENSOR_KEY everywhere. Startup warns loudly when the default is live.
-SENSOR_API_KEY = os.environ.get("NIDS_SENSOR_KEY", _DEFAULT_SENSOR_KEY)
+# This replaced a single shared key that was published in this repository as a
+# default. That key let anyone forge any alert - including an "SSH Login" that
+# silenced shell detection between two hosts - so it is refused outright now.
+SENSOR_KEYS_PATH = Path(sensor_keys.DEFAULT_PATH)
+# name -> key, filled at startup. "legacy" appears only when the operator set
+# their own NIDS_SENSOR_KEY, so existing deployments keep working.
+_SENSOR_KEYS: Dict[str, str] = {}
+LEGACY_SENSOR = "legacy"
 
 # Initial admin password, used ONLY to seed a brand-new DB.
 #
@@ -266,7 +270,8 @@ PBKDF2_ITERATIONS = 200_000
 # NIDS_ALLOWED_ORIGINS (comma-separated) for remote dashboards.
 ALLOWED_ORIGINS = os.environ.get(
     "NIDS_ALLOWED_ORIGINS",
-    "http://127.0.0.1:8000,http://localhost:8000",
+    "https://127.0.0.1:8000,https://localhost:8000,"
+    "http://127.0.0.1:8000,http://localhost:8000",   # NIDS_INSECURE_HTTP=1
 ).split(",")
 
 # Session token expiry (hours)
@@ -290,6 +295,7 @@ ROLES = {
         # Suppressing is tuning the sensor, not judging one alert: it silences
         # a rule for a source from now on, so it stays with admins.
         "manage_suppressions",
+        "view_audit",
     ]),
     "analyst": frozenset([
         "view_alerts",
@@ -350,6 +356,30 @@ def init_db():
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_sessions_token
             ON sessions(token)
+        """)
+        # Schema v1: sessions.token holds SHA-256(token), never the token itself.
+        # Rows written by older builds hold raw bearer tokens, which can neither
+        # be verified against a hash nor left lying in the file, so they are
+        # dropped once. Effect for the operator: log in again after upgrading.
+        if conn.execute("PRAGMA user_version").fetchone()[0] < 1:
+            dropped = conn.execute("DELETE FROM sessions").rowcount
+            conn.execute("PRAGMA user_version = 1")
+            if dropped:
+                print(f"[AUTH] Session storage upgraded to hashed tokens; "
+                      f"{dropped} existing session(s) ended - please log in again.")
+        # Durable record of privileged actions. With a stolen admin token this is
+        # the only account of what the token was used for, so it lives in the DB
+        # rather than on stdout.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS audit_log (
+                id      INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts      REAL NOT NULL,
+                actor   TEXT NOT NULL,
+                action  TEXT NOT NULL,
+                target  TEXT NOT NULL DEFAULT '',
+                detail  TEXT NOT NULL DEFAULT '',
+                ip      TEXT
+            )
         """)
         # Persistent alert store — survives restarts (was in-memory only).
         conn.execute("""
@@ -470,13 +500,21 @@ def db_get_user(username: str) -> Optional[sqlite3.Row]:
         ).fetchone()
 
 
+def _token_hash(token: str) -> str:
+    """What the sessions table stores. A bearer token is a password with an
+    expiry: whoever reads the DB file or a backup of it should get nothing
+    usable. Plain SHA-256 is enough (unlike for passwords) because the token
+    is 256 random bits, so there is nothing to brute-force."""
+    return hashlib.sha256((token or "").encode()).hexdigest()
+
+
 def db_create_session(username: str, role: str) -> str:
     token = secrets.token_hex(32)
     expires = (datetime.now() + timedelta(hours=TOKEN_EXPIRY_HOURS)).isoformat()
     with get_db() as conn:
         conn.execute(
             "INSERT INTO sessions (token, username, role, expires_at, created_at) VALUES (?,?,?,?,?)",
-            (token, username, role, expires, datetime.now().isoformat()),
+            (_token_hash(token), username, role, expires, datetime.now().isoformat()),
         )
         # Update last_login
         conn.execute(
@@ -489,13 +527,55 @@ def db_create_session(username: str, role: str) -> str:
 def db_get_session(token: str) -> Optional[sqlite3.Row]:
     with get_db() as conn:
         return conn.execute(
-            "SELECT * FROM sessions WHERE token = ?", (token,)
+            "SELECT * FROM sessions WHERE token = ?", (_token_hash(token),)
         ).fetchone()
 
 
 def db_revoke_session(token: str):
     with get_db() as conn:
-        conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
+        conn.execute("DELETE FROM sessions WHERE token = ?", (_token_hash(token),))
+
+
+def db_revoke_other_sessions(username: str, keep_token: str) -> int:
+    """End every session of `username` except the caller's own."""
+    with get_db() as conn:
+        return conn.execute(
+            "DELETE FROM sessions WHERE username = ? AND token != ?",
+            (username, _token_hash(keep_token)),
+        ).rowcount
+
+
+# ── Audit log ──
+AUDIT_RETENTION = 20_000
+
+
+def audit(actor: str, action: str, target: str = "", detail: str = "",
+          ip: Optional[str] = None) -> None:
+    """Record a privileged action. Never raises: an audit failure must not
+    turn into a failed (or half-applied) admin action - it is reported instead."""
+    try:
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO audit_log (ts, actor, action, target, detail, ip) "
+                "VALUES (?,?,?,?,?,?)",
+                (time.time(), actor or "?", action, (target or "")[:200],
+                 (detail or "")[:500], ip),
+            )
+            conn.execute(
+                "DELETE FROM audit_log WHERE id <= (SELECT MAX(id) FROM audit_log) - ?",
+                (AUDIT_RETENTION,),
+            )
+    except Exception as e:                      # noqa: BLE001
+        safe_print(f"[AUDIT][WARN] could not record {action} by {actor}: {e}")
+
+
+def db_audit_entries(limit: int) -> List[Dict]:
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT ts, actor, action, target, detail, ip FROM audit_log "
+            "ORDER BY id DESC LIMIT ?", (limit,),
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def db_purge_expired_sessions():
@@ -698,6 +778,7 @@ def load_asset_inventory():
     """
     TRUSTED_ARP.clear()
     KNOWN_HOSTS.clear()
+    HOST_ADDRESSES.clear()
     if not ASSETS_PATH.exists():
         # This is the common fresh-deployment case, so it is also the moment the
         # operator most needs to know what is switched OFF. The early return used
@@ -729,6 +810,11 @@ def load_asset_inventory():
         KNOWN_HOSTS.add(ip)
     for ip in (data.get("known_hosts") or []):
         KNOWN_HOSTS.add(ip)
+    for name, ip in (data.get("host_addresses") or {}).items():
+        try:
+            HOST_ADDRESSES[str(name)] = str(ipaddress.ip_address(str(ip)))
+        except ValueError:
+            print(f"[ASSETS][WARN] host_addresses: {name!r} -> {ip!r} is not an IP")
 
     # ── Tier 2 baselines ──────────────────────────────────────────────────────
     # These are what "unexpected" is measured against. Without them Tier 2 falls
@@ -871,6 +957,10 @@ system_stats = {
     # Last capture failure, surfaced through /status so a dead sniffer is
     # visible on the dashboard instead of looking like an idle network.
     "sniffer_error": None,
+    # Packets whose processing raised (see process_packet). Non-zero means a
+    # detector has a parsing bug or someone is sending packets crafted to hit one.
+    "packet_errors": 0,
+    "last_packet_error": None,
 }
 
 sniffer_thread: Optional[threading.Thread] = None
@@ -965,6 +1055,30 @@ def publish_finding(finding: Finding) -> Optional[Dict]:
     return PIPELINE.publish(finding)
 
 
+# Hostname -> IP for hosts the host sensor reports on. auth.log names the server
+# by its syslog hostname, but flows are keyed by IP, so without this mapping a
+# confirmed login could never match the session it confirms. assets.json key:
+# "host_addresses": {"web-prod-01": "192.168.56.101"}
+HOST_ADDRESSES: Dict[str, str] = {}
+_unmapped_hosts_warned: set = set()
+
+
+def _host_address(name: str) -> Optional[str]:
+    """An IP for `name`: itself if it is one, else the assets.json mapping."""
+    try:
+        return str(ipaddress.ip_address(name))
+    except ValueError:
+        pass
+    ip = HOST_ADDRESSES.get(name)
+    if ip is None and name not in _unmapped_hosts_warned:
+        _unmapped_hosts_warned.add(name)
+        print(f"[ASSETS] Host sensor reported a login on '{name}', which has no IP "
+              f"in assets.json 'host_addresses'. Its SSH sessions cannot be "
+              f"matched to the login, so they will raise a medium shell alert. "
+              f"Fix: add \"{name}\": \"<its IP>\" under host_addresses.")
+    return ip
+
+
 def generate_alert(
     alert_type: str,
     severity: str,
@@ -975,6 +1089,7 @@ def generate_alert(
     details: Optional[Dict] = None,
     rule_id: Optional[str] = None,
     _from_correlation: bool = False,   # kept for call-site compatibility; unused
+    vouch_for_login: bool = False,
 ) -> Optional[Dict]:
     """Legacy entry point, kept so the host/cloud sensors and POST /alert work.
 
@@ -991,9 +1106,16 @@ def generate_alert(
     # A confirmed login from the host auth-log sensor is the ONLY thing that can
     # tell a legitimate SSH session from a shell that merely looks like one — the
     # two are identical on the wire because they are the same kind of session.
-    # Feeding it back suppresses BEHAVIOR_INTERACTIVE_SHELL for that host pair.
-    if alert_type == "SSH Login" and src and dst:
-        PIPELINE.shell.note_authorized_session(src, dst)
+    # Feeding it back suppresses BEHAVIOR_INTERACTIVE_SHELL for the matching
+    # session (same pair, SSH port, started near the login - see
+    # InteractiveShellDetector._is_authorized).
+    #
+    # Only a sensor with the authority to vouch (the host sensor) can do this;
+    # it used to be any holder of the shared key.
+    if alert_type == "SSH Login" and src and dst and vouch_for_login:
+        server = _host_address(dst)
+        if server:
+            PIPELINE.shell.note_authorized_session(src, server)
 
     return publish_finding(Finding(
         rule_id=(rule.rule_id if rule else (rule_id or alert_type)),
@@ -1523,6 +1645,24 @@ def update_baseline(src: str):
 #  PACKET PROCESSOR
 # ─────────────────────────────────────────────
 def process_packet(packet):
+    """Per-packet error boundary around the detection path.
+
+    Every packet is attacker-supplied input. If one of them makes a detector
+    raise, the exception must cost that packet only: escaping into scapy's
+    sniff() closes the capture socket and silently drops everything queued
+    behind it, which is a blind spot an attacker can trigger on demand. The
+    failure is counted and shown in /status rather than swallowed, so a parsing
+    bug is visible instead of looking like a quiet network.
+    """
+    try:
+        _process_packet(packet)
+    except Exception as e:                      # noqa: BLE001 - boundary by design
+        system_stats["packet_errors"] += 1
+        system_stats["last_packet_error"] = (
+            f"{datetime.now().strftime('%H:%M:%S')} {type(e).__name__}: {e}")[:300]
+
+
+def _process_packet(packet):
     system_stats["packets_captured"] += 1
 
     # ARP has no IP layer — handle it before the IP guard (L2 trust boundary).
@@ -1706,6 +1846,14 @@ def _sniffer_worker():
 # ─────────────────────────────────────────────
 bearer_scheme = HTTPBearer(auto_error=False)
 
+# Password-guessing brake. See utils/auth_throttle.py for why it is two
+# counters of different strength and never a lockout.
+LOGIN_THROTTLE = LoginThrottle()
+
+# Verified against when the username does not exist, so a miss costs the same
+# PBKDF2 work as a wrong password (no timing oracle for valid usernames).
+_DUMMY_PASSWORD_HASH = _hash_password(secrets.token_hex(16))
+
 
 def _get_validated_session(token: str) -> Optional[dict]:
     """Return session dict if token exists and is not expired, else None."""
@@ -1759,15 +1907,52 @@ def require_permission(permission: str):
     return _check
 
 
-def require_sensor(request: Request):
+def load_sensor_keys() -> None:
+    """Fill _SENSOR_KEYS: the generated per-sensor keys, plus the operator's own
+    NIDS_SENSOR_KEY if they set one (never the published default)."""
+    _SENSOR_KEYS.clear()
+    created = not SENSOR_KEYS_PATH.exists()
+    try:
+        _SENSOR_KEYS.update(sensor_keys.load_or_create(SENSOR_KEYS_PATH))
+    except (OSError, ValueError) as e:
+        print(f"[SENSORS][ERROR] Cannot read/create {SENSOR_KEYS_PATH}: {e}. "
+              f"Sensors will be refused until this is fixed.")
+    if created and _SENSOR_KEYS:
+        print(f"[SENSORS] Created {SENSOR_KEYS_PATH} with one key per sensor "
+              f"({', '.join(_SENSOR_KEYS)}). Sensors on this machine use it "
+              f"automatically. For a sensor on another machine, set "
+              f"NIDS_SENSOR_KEY there to:  python -m utils.sensor_keys show <name>")
+    legacy = os.environ.get(sensor_keys.ENV_KEY, "").strip()
+    if legacy and legacy == sensor_keys.PUBLIC_DEFAULT_KEY:
+        print("[SENSORS][WARN] NIDS_SENSOR_KEY is set to the key published in this "
+              "repository. It is refused. Unset it; sensors on this machine pick up "
+              "their own keys automatically.")
+    elif legacy:
+        _SENSOR_KEYS[LEGACY_SENSOR] = legacy
+        print("[SENSORS] Accepting your NIDS_SENSOR_KEY as a shared key with every "
+              "sensor's rights. Per-sensor keys (sensor_keys.json) are narrower: a "
+              "leaked one can only send that sensor's alert types.")
+
+
+def sensor_scope(sensor: str) -> frozenset:
+    if sensor == LEGACY_SENSOR:
+        return frozenset().union(*sensor_keys.SENSOR_SCOPES.values())
+    return sensor_keys.SENSOR_SCOPES.get(sensor, frozenset())
+
+
+def sensor_may_vouch_for_logins(sensor: str) -> bool:
+    return sensor == LEGACY_SENSOR or sensor in sensor_keys.SESSION_AUTHORITIES
+
+
+def require_sensor(request: Request) -> str:
     """
-    POST /alert only — accepts the sensor pre-shared key.
-    Intentionally does NOT accept user tokens to keep sensor
-    access completely separate from human access.
+    POST /alert only. Returns WHICH sensor is calling, so the endpoint can hold
+    it to that sensor's scope. Intentionally does NOT accept user tokens, to
+    keep sensor access completely separate from human access.
     """
-    sensor_key = request.headers.get("X-Sensor-Key", "")
-    if hmac.compare_digest(sensor_key, SENSOR_API_KEY):
-        return "sensor"
+    name = sensor_keys.identify(request.headers.get("X-Sensor-Key", ""), _SENSOR_KEYS)
+    if name:
+        return name
     raise HTTPException(
         status_code=401,
         detail="Valid X-Sensor-Key header required.",
@@ -1808,6 +1993,29 @@ class CreateUserRequest(BaseModel):
 class UpdateRoleRequest(BaseModel):
     role: str
 
+# ── Sensor intake limits ──────────────────────
+# A sensor's payload is a claim, and the shared key means a claim can come from
+# anyone who has read this repository. Every field is therefore checked for shape
+# here, once, before it reaches the store or the browser. The limits are sized
+# so that every payload the bundled sensors send passes unchanged.
+_HOSTNAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,252}$")
+SENSOR_MESSAGE_MAX = 1000        # longer messages are truncated, not rejected
+SENSOR_PROTO_MAX = 16
+SENSOR_DETAILS_MAX_BYTES = 16_384
+
+
+def _address_or_hostname(value: str) -> str:
+    """An IP address, or a plain hostname (the host sensor's fallback actor)."""
+    v = (value or "").strip()
+    try:
+        return str(ipaddress.ip_address(v))
+    except ValueError:
+        pass
+    if _HOSTNAME_RE.match(v):
+        return v
+    raise ValueError("must be an IP address or a hostname")
+
+
 class ExternalAlert(BaseModel):
     src: str
     dst: Optional[str] = None
@@ -1817,15 +2025,83 @@ class ExternalAlert(BaseModel):
     alert_type: Optional[str] = "ML Anomaly"
     details: Optional[Dict] = {}
 
+    @field_validator("src")
+    @classmethod
+    def _v_src(cls, v):
+        return _address_or_hostname(v)
+
+    @field_validator("dst")
+    @classmethod
+    def _v_dst(cls, v):
+        return None if v in (None, "") else _address_or_hostname(v)
+
+    @field_validator("severity")
+    @classmethod
+    def _v_severity(cls, v):
+        # Free-text severity was rendered into the dashboard as markup. Accept
+        # any casing (a sensor sending HIGH is right, just loud), nothing else.
+        sev = (v or "high").strip().lower()
+        if sev not in SEVERITY_ORDER:
+            raise ValueError(f"must be one of {sorted(SEVERITY_ORDER)}")
+        return sev
+
+    @field_validator("alert_type")
+    @classmethod
+    def _v_alert_type(cls, v):
+        t = (v or "ML Anomaly").strip()
+        if t not in SENSOR_ALERT_TYPES:
+            raise ValueError("unknown alert_type; see detection.rules.SENSOR_ALERT_TYPES")
+        return t
+
+    @field_validator("proto")
+    @classmethod
+    def _v_proto(cls, v):
+        return (v or "unknown")[:SENSOR_PROTO_MAX]
+
+    @field_validator("message")
+    @classmethod
+    def _v_message(cls, v):
+        return (v or "Suspicious activity")[:SENSOR_MESSAGE_MAX]
+
+    @field_validator("details")
+    @classmethod
+    def _v_details(cls, v):
+        v = v or {}
+        if len(json.dumps(v, default=str)) > SENSOR_DETAILS_MAX_BYTES:
+            raise ValueError(f"details larger than {SENSOR_DETAILS_MAX_BYTES} bytes")
+        return v
+
 
 # ── Auth Endpoints ────────────────────────────
 
+def _client_ip(request: Request) -> str:
+    return request.client.host if request.client else "?"
+
+
 @app.post("/auth/login", tags=["Auth"])
-def login(payload: LoginRequest):
+def login(payload: LoginRequest, request: Request):
     """Exchange username + password for a bearer token."""
+    ip = _client_ip(request)
+    # Throttle BEFORE checking the password. Checked after, a throttled
+    # attacker who guesses right would still get in - the throttle would only
+    # be slowing down the wrong answers.
+    wait = LOGIN_THROTTLE.retry_after(ip, payload.username)
+    if wait > 0:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many failed logins. Try again in {math.ceil(wait)}s.",
+            headers={"Retry-After": str(math.ceil(wait))},
+        )
+
     user = db_get_user(payload.username)
-    if user is None or not _verify_password(payload.password, user["password"]):
+    # A missing user still pays for one PBKDF2 verification. Returning early
+    # made unknown names answer ~10x faster, which lists the real accounts.
+    stored = user["password"] if user is not None else _DUMMY_PASSWORD_HASH
+    if not _verify_password(payload.password, stored) or user is None:
+        LOGIN_THROTTLE.failure(ip, payload.username)
+        audit(payload.username[:64], "login_failure", payload.username[:64], ip=ip)
         raise HTTPException(status_code=401, detail="Invalid username or password.")
+    LOGIN_THROTTLE.success(ip, payload.username)
 
     # Transparently upgrade legacy unsalted-SHA256 hashes to PBKDF2 on login.
     if _is_legacy_hash(user["password"]):
@@ -1835,6 +2111,7 @@ def login(payload: LoginRequest):
         print(f"[AUTH] Upgraded password hash for {payload.username} to PBKDF2.")
 
     token = db_create_session(payload.username, user["role"])
+    audit(payload.username, "login", payload.username, ip=ip)
     print(f"[AUTH] Login: {payload.username} (role={user['role']})")
     return {
         "token":      token,
@@ -1850,6 +2127,7 @@ def logout(
     session: dict = Depends(require_auth),
 ):
     db_revoke_session(credentials.credentials)
+    audit(session["username"], "logout", session["username"])
     print(f"[AUTH] Logout: {session['username']}")
     return {"status": "logged out"}
 
@@ -1857,11 +2135,21 @@ def logout(
 @app.post("/auth/change-password", tags=["Auth"])
 def change_password(
     payload: ChangePasswordRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     session: dict = Depends(require_auth),
 ):
-    """Any logged-in user can change their own password."""
+    """Any logged-in user can change their own password.
+
+    Every OTHER session of this user is ended. Changing a password is what a
+    person does when they think it leaked; a stolen token that outlives the
+    change makes the change pointless. The caller's own session is kept so the
+    dashboard does not throw them out mid-action.
+    """
     user = db_get_user(session["username"])
     if not _verify_password(payload.current_password, user["password"]):
+        audit(session["username"], "password_change_failed", session["username"],
+              ip=_client_ip(request))
         raise HTTPException(status_code=401, detail="Current password is incorrect.")
     if len(payload.new_password) < 8:
         raise HTTPException(status_code=400, detail="New password must be at least 8 characters.")
@@ -1870,8 +2158,12 @@ def change_password(
             "UPDATE users SET password = ? WHERE username = ?",
             (_hash_password(payload.new_password), session["username"]),
         )
-    print(f"[AUTH] Password changed: {session['username']}")
-    return {"status": "ok"}
+    ended = db_revoke_other_sessions(session["username"], credentials.credentials)
+    audit(session["username"], "password_change", session["username"],
+          f"{ended} other session(s) ended", ip=_client_ip(request))
+    print(f"[AUTH] Password changed: {session['username']} "
+          f"({ended} other session(s) ended)")
+    return {"status": "ok", "other_sessions_ended": ended}
 
 
 # ── User Management (admin only) ──────────────
@@ -1901,6 +2193,7 @@ def create_user(
             (payload.username, _hash_password(payload.password),
              payload.role, datetime.now().isoformat()),
         )
+    audit(session["username"], "user_create", payload.username, f"role={payload.role}")
     print(f"[AUTH] User created: {payload.username} (role={payload.role}) by {session['username']}")
     return {"status": "ok", "username": payload.username, "role": payload.role}
 
@@ -1918,6 +2211,7 @@ def delete_user(
     with get_db() as conn:
         conn.execute("DELETE FROM users WHERE username = ?", (username,))
         conn.execute("DELETE FROM sessions WHERE username = ?", (username,))
+    audit(session["username"], "user_delete", username)
     print(f"[AUTH] User deleted: {username} by {session['username']}")
     return {"status": "ok"}
 
@@ -1940,18 +2234,30 @@ def update_role(
         )
         # Revoke existing sessions — force re-login with new role
         conn.execute("DELETE FROM sessions WHERE username = ?", (username,))
+    audit(session["username"], "role_change", username, f"role={payload.role}")
     print(f"[AUTH] Role updated: {username} -> {payload.role} by {session['username']}")
     return {"status": "ok", "username": username, "role": payload.role}
+
+
+@app.get("/audit", tags=["User Management"])
+def get_audit_log(
+    limit: int = Query(100, ge=1, le=1000),
+    session: dict = Depends(require_permission("view_audit")),
+):
+    """Privileged actions, newest first: logins (and failures), user and role
+    changes, suppressions, Clear Alerts, sniffer start/stop. Admin only."""
+    return {"entries": db_audit_entries(limit)}
 
 
 # ── System Endpoints ──────────────────────────
 
 @app.get("/health", tags=["System"])
-def health():
+def health(request: Request):
     # Public — no auth required
     return {
         "status":    "ok",
         "scapy":     SCAPY_AVAILABLE,
+        "tls":       request.url.scheme == "https",
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
 
@@ -1974,6 +2280,8 @@ def status(session: dict = Depends(require_auth)):
         "uptime_seconds":   uptime,
         "interface":        NETWORK_INTERFACE or "auto",
         "sniffer_error":    system_stats["sniffer_error"],
+        "packet_errors":    system_stats["packet_errors"],
+        "last_packet_error": system_stats["last_packet_error"],
         "available_interfaces": list_interfaces(),
         "fragments_reassembled": defragmenter.core.stats["datagrams_reassembled"],
         "user":             session["username"],
@@ -2186,6 +2494,9 @@ def _add_suppression(rule_id: str, src: str, by: str, note: str) -> dict:
         db_insert_suppression(rec)
     except Exception as e:
         safe_print(f"[DB][WARN] Could not persist suppression: {e}")
+    # A suppression is a deliberate blind spot - exactly what a stolen admin
+    # token would create first - so every one is on the record.
+    audit(by, "suppression_add", f"{rule_id} from {src}", note)
     print(f"[TRIAGE] {by} suppressed {rule_id} from {src}")
     return rec
 
@@ -2214,6 +2525,8 @@ def delete_suppression(suppression_id: int,
     if rec is None:
         raise HTTPException(404, f"No suppression #{suppression_id}")
     db_delete_suppression(suppression_id)
+    audit(session["username"], "suppression_remove",
+          f"{rec['rule_id']} from {rec['src']}", f"#{suppression_id}")
     print(f"[TRIAGE] {session['username']} removed suppression #{suppression_id} "
           f"({rec['rule_id']} from {rec['src']})")
     return {"removed": rec}
@@ -2345,16 +2658,18 @@ def host_profile_detail(
 
 @app.delete("/alerts", tags=["Alerts"])
 def clear_alerts(session: dict = Depends(require_permission("delete_alerts"))):
-    """Admin only. Clears the in-memory cache AND the durable store."""
+    """Admin only. Clears alerts and incidents from memory AND the durable store.
+    Learned host profiles and confirmed-login state are kept."""
     with alerts_lock:
         count = len(PIPELINE.alerts)
         system_stats["alerts_generated"] = 0
-    PIPELINE.reset()
+    PIPELINE.clear_alerts()     # alerts + incidents only; learned baselines stay
     db_clear_alerts()
     with pc_lock:
         _recent_pc_alerts.clear()
     with _alert_id_lock:
         _alert_id_counter[0] = 0
+    audit(session["username"], "alerts_clear", "", f"{count} record(s)")
     print(f"[NIDS] {session['username']} cleared {count} alert records "
           f"(memory + disk) and reset correlation state.")
     return {"status": "ok", "cleared": count}
@@ -2382,7 +2697,14 @@ def receive_external_alert(
     payload: ExternalAlert,
     sender: str = Depends(require_sensor),
 ):
-    """Sensor-only endpoint. Requires X-Sensor-Key header."""
+    """Sensor-only endpoint. Requires X-Sensor-Key header, and the alert type
+    must be one this sensor exists to report (utils/sensor_keys.SENSOR_SCOPES)."""
+    if payload.alert_type not in sensor_scope(sender):
+        raise HTTPException(
+            403, f"Sensor '{sender}' may not report '{payload.alert_type}'. "
+                 f"Allowed: {sorted(sensor_scope(sender))}")
+    payload.details = dict(payload.details or {})
+    payload.details["reported_by"] = sender
     alert = generate_alert(
         alert_type=payload.alert_type,
         severity=payload.severity,
@@ -2391,7 +2713,10 @@ def receive_external_alert(
         protocol=payload.proto,
         message=payload.message,
         details=payload.details,
-        rule_id=(payload.details or {}).get("rule_id"),
+        # The rule is resolved from alert_type ONLY. Honouring details.rule_id
+        # let any key-holder claim a packet-catalogue rule (EXPLOIT_*, scans)
+        # and assemble a forged ACTIVE_INTRUSION against an IP of their choosing.
+        vouch_for_login=sensor_may_vouch_for_logins(sender),
     )
     if alert is None:
         # Deduplicated into an existing record. The sensor's event is counted,
@@ -2406,6 +2731,12 @@ def receive_external_alert(
 
 @app.post("/control/start", tags=["Control"])
 def control_start(session: dict = Depends(require_permission("control_sniffer"))):
+    return _start_capture(session["username"])
+
+
+def _start_capture(actor: str) -> Dict:
+    """Start the sniffer on behalf of `actor` (a user, or "system" for
+    NIDS_AUTOSTART_CAPTURE). Raises HTTPException with the reason on failure."""
     global sniffer_thread
 
     if system_stats["running"]:
@@ -2444,7 +2775,8 @@ def control_start(session: dict = Depends(require_permission("control_sniffer"))
                     "'sudo venv/bin/python main.py' (Windows: Administrator + Npcap).")
         raise HTTPException(500, f"Sniffer failed to start: {err}")
 
-    print(f"[NIDS] Sniffer started by {session['username']}")
+    audit(actor, "sniffer_start", iface or "(default)")
+    print(f"[NIDS] Sniffer started by {actor}")
 
     return {"status": "started", "interface": iface or "(scapy default)"}
 
@@ -2456,6 +2788,8 @@ def control_stop(session: dict = Depends(require_permission("control_sniffer")))
 
     sniffer_stop_event.set()
     system_stats["running"] = False
+    # Stopping capture blinds the sensor; it belongs on the record.
+    audit(session["username"], "sniffer_stop")
     print(f"[NIDS] Sniffer stopped by {session['username']}")
 
     return {"status": "stopped"}
@@ -2503,15 +2837,25 @@ def on_startup():
     except Exception as e:
         print(f"[DB][WARN] Could not restore suppressions: {e}")
 
-    if SENSOR_API_KEY == _DEFAULT_SENSOR_KEY:
-        print("[NIDS][WARN] Using the PUBLIC default sensor key. Set NIDS_SENSOR_KEY "
-              "(and match it in the sensors) before any real deployment.")
+    load_sensor_keys()
 
     load_host_profiles()
     threading.Thread(target=_profile_saver_worker, daemon=True,
                      name="profile-saver").start()
 
-    print("[NIDS] main.py ready. POST /control/start to begin capture.")
+    # start.sh sets this: a script cannot log in, and capture is the core job.
+    if os.environ.get("NIDS_AUTOSTART_CAPTURE", "").strip() in ("1", "true", "yes"):
+        try:
+            r = _start_capture("system")
+            print(f"[NIDS] Capture autostarted on {r['interface']}.")
+        except HTTPException as e:
+            audit("system", "sniffer_start_failed", resolve_interface() or "",
+                  str(e.detail)[:500])
+            safe_print(f"[NIDS][WARN] Capture autostart failed: {e.detail}")
+            safe_print("[NIDS]        Start it from the dashboard once fixed.")
+    else:
+        print("[NIDS] main.py ready. Start capture from the dashboard "
+              "(or set NIDS_AUTOSTART_CAPTURE=1).")
     print("[NIDS] ML alerts expected from live_ids_v2.py via POST /alert")
 
 
@@ -2527,6 +2871,57 @@ def on_shutdown():
 # ─────────────────────────────────────────────
 #  ENTRY POINT
 # ─────────────────────────────────────────────
+def transport_config(env=None) -> Dict:
+    """Decide how the server listens. TLS unless the operator explicitly opts out.
+
+    NIDS_INSECURE_HTTP=1    plain HTTP (the dashboard then shows a warning
+                            banner whenever it is reached across the network)
+    NIDS_TLS_CERT/_KEY      use your own certificate instead of the generated one
+    NIDS_TLS_DIR            where the generated certificate lives (default tls/)
+    """
+    env = os.environ if env is None else env
+    if env.get("NIDS_INSECURE_HTTP", "").strip() in ("1", "true", "yes"):
+        return {"scheme": "http", "ssl_certfile": None, "ssl_keyfile": None,
+                "fingerprint": None, "created": False}
+    from utils.tls import ensure_certificate, fingerprint_of
+    if env.get("NIDS_TLS_CERT") and env.get("NIDS_TLS_KEY"):
+        cert, key = env["NIDS_TLS_CERT"], env["NIDS_TLS_KEY"]
+        return {"scheme": "https", "ssl_certfile": cert, "ssl_keyfile": key,
+                "fingerprint": fingerprint_of(cert), "created": False}
+    m = ensure_certificate(env.get("NIDS_TLS_DIR", "tls"))
+    return {"scheme": "https", "ssl_certfile": m.cert_path, "ssl_keyfile": m.key_path,
+            "fingerprint": m.fingerprint, "created": m.created}
+
+
+def _print_connection_banner(t: Dict, host: str, port: int) -> None:
+    from utils.tls import local_addresses
+    shown = host if host not in ("0.0.0.0", "::") else next(
+        (a for a in local_addresses() if a not in ("127.0.0.1", "::1")
+         and ":" not in a), "127.0.0.1")
+    bar = "-" * 68
+    safe_print(bar)
+    safe_print(f"  Dashboard : {t['scheme']}://{shown}:{port}")
+    if t["scheme"] == "https":
+        safe_print(f"  TLS cert  : {'created' if t['created'] else 'reused'} "
+                   f"{t['ssl_certfile']}")
+        safe_print(f"  SHA-256   : {t['fingerprint']}")
+        safe_print("  Your browser will warn once (self-signed). Accept it only if")
+        safe_print("  the fingerprint it shows matches the line above.")
+        safe_print("  Sensors on this machine need no setup. On another machine set:")
+        safe_print(f"    NIDS_URL=https://{shown}:{port}")
+        safe_print(f"    NIDS_TLS_FINGERPRINT={t['fingerprint']}")
+        safe_print("    NIDS_SENSOR_KEY=$(python -m utils.sensor_keys show <ml|host|cloud>)")
+    else:
+        safe_print("  WARNING   : plain HTTP (NIDS_INSECURE_HTTP=1). Logins and session")
+        safe_print("              tokens cross the network readable by anyone on it.")
+    safe_print(bar)
+
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=False)
+    _bind = os.environ.get("NIDS_BIND", "0.0.0.0")
+    _port = int(os.environ.get("NIDS_PORT", "8000"))
+    _t = transport_config()
+    _print_connection_banner(_t, _bind, _port)
+    uvicorn.run("main:app", host=_bind, port=_port, reload=False,
+                ssl_certfile=_t["ssl_certfile"], ssl_keyfile=_t["ssl_keyfile"])

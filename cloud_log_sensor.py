@@ -33,11 +33,12 @@ from typing import Dict, List, Optional
 
 import requests
 
+from utils.sensor_client import TransportError, client_for, report_connection
+
 # ─────────────────────────────────────────────
 #  CONFIG
 # ─────────────────────────────────────────────
-NIDS_ALERT_URL   = "http://127.0.0.1:8000/alert"
-SENSOR_API_KEY   = "sensor-key-change-me-in-production"  # must match main.py
+# Transport + identity: utils/sensor_client.py, as the "cloud" sensor.
 ALERT_TIMEOUT    = 3
 
 # Directory to watch for VPC Flow Log files
@@ -140,19 +141,20 @@ def send_alert(
         "details":    details or {},
     }
     print(f"[CLOUD-ALERT] [{severity.upper()}] {alert_type} → {message}")
+    client, why = client_for("cloud")
+    if client is None:
+        print(f"  ✗ Not sent: {why}")
+        return
     try:
-        resp = requests.post(
-            NIDS_ALERT_URL,
-            json=payload,
-            timeout=ALERT_TIMEOUT,
-            headers={"X-Sensor-Key": SENSOR_API_KEY},
-        )
+        resp = client.post(payload, timeout=ALERT_TIMEOUT)
         if resp.status_code == 200:
             print(f"  ✓ Accepted by NIDS (id={resp.json().get('alert_id')})")
         else:
             print(f"  ✗ NIDS returned HTTP {resp.status_code}")
+    except TransportError as e:
+        print(f"  ✗ Not sent: {e}")
     except requests.exceptions.ConnectionError:
-        print(f"  ✗ NIDS unreachable at {NIDS_ALERT_URL}. Is main.py running?")
+        print(f"  ✗ NIDS unreachable at {client.base}. Is main.py running?")
     except Exception as e:
         print(f"  ✗ Alert error: {e}")
 
@@ -476,15 +478,7 @@ if __name__ == "__main__":
     print()
 
     # Verify main.py is reachable before starting
-    try:
-        r = requests.get("http://127.0.0.1:8000/health", timeout=3)
-        if r.status_code == 200:
-            print("[+] main.py is reachable. Starting watch loop...")
-        else:
-            print(f"[!] main.py returned HTTP {r.status_code} — alerts may fail")
-    except Exception:
-        print("[!] Cannot reach main.py at http://127.0.0.1:8000")
-        print("    Start main.py first, or alerts will not be stored.")
+    report_connection("cloud")
     print()
 
     watch_loop()

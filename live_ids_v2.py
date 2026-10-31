@@ -45,6 +45,7 @@ for _stream in (sys.stdout, sys.stderr):
     except (AttributeError, ValueError):
         pass
 
+from utils.sensor_client import TransportError, client_for  # noqa: E402
 from feature_engineering.live_features import (
     LIVE_NUMERIC_FEATURES,
     LIVE_CATEGORICAL_FEATURES,
@@ -83,16 +84,11 @@ NETWORK_INTERFACE   = os.environ.get("NIDS_IFACE", "ens37").strip()
 MODEL_PATH          = str(ROOT / CICIDS_LIVE_MODEL_PATH)
 ENCODER_PATH        = str(ROOT / CICIDS_LIVE_ENCODER_PATH)
 META_PATH           = str(ROOT / CICIDS_LIVE_META_PATH)
-# Where to POST ML alerts. Hardcoding loopback means a sensor running on any
-# host other than the dashboard silently delivers nothing — set NIDS_URL to the
-# dashboard host (e.g. http://192.168.1.10:8000) when they are separate boxes.
-NIDS_ALERT_URL      = os.environ.get(
-    "NIDS_URL", "http://127.0.0.1:8000").rstrip("/") + "/alert"
+# Where and how alerts go: utils/sensor_client.py (TLS pinned to main.py's
+# certificate, this sensor's own "ml" key). Same machine as main.py: nothing to
+# set. Another machine: NIDS_URL, NIDS_TLS_FINGERPRINT and NIDS_SENSOR_KEY,
+# all printed by main.py at startup.
 ALERT_TIMEOUT_SEC   = 2         # HTTP POST timeout
-
-# Must match SENSOR_API_KEY in main.py (both read NIDS_SENSOR_KEY).
-SENSOR_API_KEY      = os.environ.get(
-    "NIDS_SENSOR_KEY", "sensor-key-change-me-in-production")
 
 FLOW_MIN_PACKETS    = 5         # minimum packets before running inference
 FLOW_MAX_AGE_SEC    = 120       # expire flows older than this (prevents memory leak)
@@ -522,13 +518,12 @@ def send_alert(flow: Flow, label: str, attack_prob: Optional[float],
         },
     }
     print(f"[ALERT] Sending to NIDS [{severity}]: {payload['message']}")
+    client, why = client_for("ml")
+    if client is None:
+        print(f"[ALERT] !! Not sent: {why}")
+        return
     try:
-        resp = requests.post(
-            NIDS_ALERT_URL,
-            json=payload,
-            timeout=ALERT_TIMEOUT_SEC,
-            headers={"X-Sensor-Key": SENSOR_API_KEY},
-        )
+        resp = client.post(payload, timeout=ALERT_TIMEOUT_SEC)
         if resp.status_code == 200:
             body = resp.json()
             if body.get("deduplicated"):
@@ -540,8 +535,10 @@ def send_alert(flow: Flow, label: str, attack_prob: Optional[float],
                 print(f"[ALERT] OK Accepted by NIDS (id={body.get('alert_id')})")
         else:
             print(f"[ALERT] !! NIDS returned HTTP {resp.status_code}: {resp.text}")
+    except TransportError as e:
+        print(f"[ALERT] !! Not sent: {e}")
     except requests.exceptions.ConnectionError:
-        print(f"[ALERT] !! NIDS unreachable at {NIDS_ALERT_URL}. Is main.py running?")
+        print(f"[ALERT] !! NIDS unreachable at {client.base}. Is main.py running?")
     except requests.exceptions.Timeout:
         print(f"[ALERT] !! NIDS POST timed out after {ALERT_TIMEOUT_SEC}s")
 

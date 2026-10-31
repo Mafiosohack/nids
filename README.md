@@ -75,7 +75,15 @@ $env:NIDS_IFACE = "auto"          # or a real interface name — see below
 venv\Scripts\python.exe main.py
 ```
 
-Then open **http://127.0.0.1:8000**. An `admin` account is seeded on first run
+Then open **https://127.0.0.1:8000**. The server makes a self-signed TLS
+certificate on first start and prints its SHA-256 fingerprint; your browser warns
+once - accept it after checking the fingerprint matches. Sensors on the same
+machine need no setup (they pin `tls/nids-cert.pem` and read their own key from
+`sensor_keys.json`); a sensor on another machine needs the `NIDS_URL`,
+`NIDS_TLS_FINGERPRINT` and `NIDS_SENSOR_KEY` lines main.py prints. Plain HTTP is
+still available with `NIDS_INSECURE_HTTP=1`. Details: [docs/SECURITY.md](docs/SECURITY.md).
+
+An `admin` account is seeded on first run
 with a **randomly generated password, printed once to the console**:
 
 ```
@@ -127,15 +135,16 @@ the valid ones) instead of reporting `started` and capturing zero packets, and
 #### Reaching the dashboard from another machine
 
 The dashboard talks to whichever origin served it, so browsing to
-`http://<sensor-ip>:8000` from another host just works. Two things to set when
+`https://<sensor-ip>:8000` from another host just works. Two things to set when
 the backend is not on your own machine:
 
 ```powershell
-$env:NIDS_ALLOWED_ORIGINS = "http://192.168.1.10:8000"   # only if you host the HTML elsewhere
+$env:NIDS_ALLOWED_ORIGINS = "https://192.168.1.10:8000"  # only if you host the HTML elsewhere
 ```
 
 To point the page at a backend on a different host than the one serving it, add
-`?api=http://192.168.1.10:8000` to the dashboard URL.
+`?api=https://192.168.1.10:8000` to the dashboard URL (honoured only when the
+HTML is opened as a local file, so a crafted link cannot redirect your login).
 
 ### 2. ML sensor (live_ids_v2.py)
 
@@ -167,9 +176,15 @@ If the sensor runs on a **different host than the dashboard**, point it at the
 dashboard — otherwise it POSTs alerts to its own loopback and nothing arrives:
 
 ```powershell
-$env:NIDS_URL = "http://192.168.1.10:8000"   # dashboard host
-$env:NIDS_SENSOR_KEY = "<same value main.py uses>"
+$env:NIDS_URL = "https://192.168.1.10:8000"            # dashboard host
+$env:NIDS_TLS_FINGERPRINT = "<SHA-256 main.py printed>"  # pins its certificate
+$env:NIDS_SENSOR_KEY = "<python -m utils.sensor_keys show ml, run on the server>"
 ```
+
+If the sensor then says *"it presented ... issued by X"*, something between it
+and main.py swapped the certificate. Antivirus "HTTPS scanning" does this (seen:
+AVG, even on 127.0.0.1) - exclude the NIDS address from it. If you don't
+recognise X, treat it as interception; the sensor has sent nothing.
 
 > `start.sh` automates main.py + sniffer + sensor, but is **Linux-only** (uses
 > `sudo`, `venv/bin/python`). On Windows, run `main.py` and `live_ids_v2.py` in

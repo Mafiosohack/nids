@@ -36,7 +36,12 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 DEFAULT_TIMEOUT_SEC = 30.0      # RFC 791 reassembly timeout is 15s; be generous
 DEFAULT_MAX_BUFFERS = 1024      # concurrent partially-reassembled datagrams
-DEFAULT_MAX_DATAGRAM = 65535    # an IPv4 datagram cannot exceed this
+# An IPv4 datagram's TOTAL length (header included) is a 16-bit field, so the
+# transport payload we reassemble can be at most 65535 - 20 (minimum header).
+# This cap is checked against the payload, not the datagram: at 65535 a crafted
+# set of fragments rebuilt into an IP header needing length > 65535, scapy raised
+# struct.error, and the capture socket was closed mid-stream (2026-10-31 audit).
+DEFAULT_MAX_DATAGRAM = 65535 - 20
 DEFAULT_MAX_FRAGMENTS = 128     # per datagram
 
 

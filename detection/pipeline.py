@@ -418,7 +418,24 @@ class DetectionPipeline:
         floor = severity_rank(severity)
         return [a for a in self.published if severity_rank(a["severity"]) > floor]
 
+    def clear_alerts(self) -> None:
+        """What the dashboard's Clear Alerts means: forget the alerts and the
+        incidents built from them, keep everything the sensor has LEARNED.
+
+        Host profiles, host-sensor login confirmations and in-flight detector
+        windows are knowledge about the network, not alerts. Clear Alerts used
+        to call reset(), which wiped the per-host baseline (and the periodic
+        saver then wrote the empty store to disk), so tidying the alert view
+        silently put every host back into warm-up.
+        """
+        self.published.clear()
+        self.incidents_opened.clear()
+        self.correlator.reset()
+        self.alerts.clear()
+        self._next_id = 0
+
     def reset(self) -> None:
+        """Full reset to a freshly constructed pipeline (tests, harness)."""
         self.published.clear()
         self.incidents_opened.clear()
         self.correlator.reset()

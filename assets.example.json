@@ -59,5 +59,10 @@
   "_shell_sessions_comment": "Standing [client, server] exemptions for BEHAVIOR_INTERACTIVE_SHELL. A legitimate SSH session IS an interactive shell — identical on the wire — so the rule stays quiet only when something vouches for it. Preferred: deploy host_log_sensor.py on the server, and its SSH Login alerts vouch automatically. Use this list only for servers where the host sensor is NOT deployed; otherwise every real SSH session there raises a medium 'could not confirm this login' alert. Keep it narrow: a shell between an allowlisted pair is invisible to this rule.",
   "authorized_shell_sessions": [
     ["192.168.56.10", "192.168.56.102"]
-  ]
+  ],
+
+  "_host_addresses_comment": "Hostname -> IP for servers running host_log_sensor.py. The host sensor reports SSH logins by the hostname in auth.log; the network side sees IPs. Without this mapping a login on 'web-prod-01' cannot be matched to the shell on the wire, so that session still raises 'could not confirm this login'. main.py warns once, naming the hostname, when one is missing.",
+  "host_addresses": {
+    "metasploitable": "192.168.56.102"
+  }
 }

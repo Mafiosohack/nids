@@ -31,6 +31,10 @@ html{scroll-behavior:smooth}
 body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size:13px;min-height:100vh;overflow-x:hidden;line-height:1.5}
 
 /* ── LOGIN ── */
+/* Above the login overlay (9000): it must be readable while credentials are typed. */
+.transport-warning{position:fixed;top:0;left:0;right:0;z-index:9500;padding:7px 16px;background:var(--red);color:#fff;font-family:var(--font-mono);font-size:12px;text-align:center;line-height:1.4}
+.transport-warning b{font-weight:700}
+.transport-warning.hidden{display:none}
 .login-overlay{position:fixed;inset:0;background:var(--bg);z-index:9000;display:flex;align-items:center;justify-content:center}
 .login-overlay.hidden{display:none}
 .login-box{background:var(--card);border:1px solid var(--border2);border-radius:10px;padding:40px 36px;width:380px;display:flex;flex-direction:column;gap:18px;box-shadow:0 8px 40px rgba(15,23,42,0.15),0 0 60px rgba(37,99,235,0.05)}
@@ -362,6 +366,12 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 </head>
 <body>
 
+<!-- Shown only on plain HTTP across the network (see insecureTransport). -->
+<div class="transport-warning hidden" id="transport-warning" role="alert">
+  <b>Unencrypted connection.</b> Your login and session token are readable by anyone
+  on this network. Restart the server without NIDS_INSECURE_HTTP=1 and use https://.
+</div>
+
 <!-- LOGIN OVERLAY -->
 <div class="login-overlay" id="login-overlay">
   <div class="login-box">
@@ -691,14 +701,29 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
    localhost and the dashboard reports "backend offline".
    Opened straight off disk (file://) there is no origin to inherit, so fall
    back to the local default. Override either case with ?api=http://host:8000 */
-const API = (() => {
-  const override = new URLSearchParams(location.search).get('api');
+/* Where the API lives. A page served BY the NIDS always talks to its own
+   origin. ?api= is honoured only when the file is opened locally (file://),
+   which is the one case it exists for: on the hosted dashboard it let a crafted
+   link make the real login form post the operator's password to another site. */
+/* True when this page reached the server in plain HTTP across the network:
+   the login just typed, and every request's session token, are readable by
+   anyone on the path. Loopback is exempt - nothing crosses a wire there. */
+function insecureTransport(loc) {
+  if (loc.protocol !== 'http:') return false;
+  const h = String(loc.hostname || '').replace(/^\[|\]$/g, '');
+  return !(h === 'localhost' || h === '::1' || /^127\./.test(h));
+}
+
+function resolveApiBase(loc) {
+  if (loc.protocol === 'http:' || loc.protocol === 'https:') return loc.origin;
+  const override = new URLSearchParams(loc.search).get('api');
   if (override) return override.replace(/\/+$/, '');
-  if (location.protocol === 'http:' || location.protocol === 'https:') {
-    return location.origin;
-  }
-  return 'http://127.0.0.1:8000';
-})();
+  return 'https://127.0.0.1:8000';
+}
+const API = resolveApiBase(location);
+if (insecureTransport(location)) {
+  document.getElementById('transport-warning').classList.remove('hidden');
+}
 const POLL_MS   = 2000;
 const MAX_DISP  = 100;   // alert groups shown in the queue
 const DEDUP_MS  = 60_000;
@@ -1054,7 +1079,7 @@ function renderAlerts() {
 
   const frag=document.createDocumentFragment();
   for (const grp of groups) {
-    const a=grp.rep, sev=(a.severity||'low').toLowerCase();
+    const a=grp.rep, sev=sevKey(a.severity);
     const tsD=a.timestamp?(a.timestamp.length>8?a.timestamp.split(' ')[1]||a.timestamp:a.timestamp):'—';
     const div=document.createElement('div');
     div.className=`alert-item sev-${sev}`;
@@ -1392,18 +1417,25 @@ async function loadUsers() {
     tbody.innerHTML = users.map(u => `
       <tr>
         <td style="color:var(--text-bright)">${esc(u.username)}</td>
-        <td><span class="role-badge role-${u.role}">${u.role}</span></td>
-        <td style="color:var(--text-dim)">${(u.created_at||'').slice(0,10)}</td>
-        <td style="color:var(--text-dim)">${u.last_login?(u.last_login||'').slice(0,16):'Never'}</td>
+        <td><span class="role-badge role-${esc(u.role)}">${esc(u.role)}</span></td>
+        <td style="color:var(--text-dim)">${esc((u.created_at||'').slice(0,10))}</td>
+        <td style="color:var(--text-dim)">${u.last_login?esc(u.last_login.slice(0,16)):'Never'}</td>
         <td style="display:flex;gap:6px">
-          <select onchange="changeRole('${esc(u.username)}',this.value)" style="background:var(--card2);border:1px solid var(--border2);border-radius:3px;padding:3px 6px;font-family:var(--font-mono);font-size:10px;color:var(--text)">
+          <select data-act="role" data-user="${esc(u.username)}" style="background:var(--card2);border:1px solid var(--border2);border-radius:3px;padding:3px 6px;font-family:var(--font-mono);font-size:10px;color:var(--text)">
             <option value="viewer" ${u.role==='viewer'?'selected':''}>Viewer</option>
             <option value="analyst" ${u.role==='analyst'?'selected':''}>Analyst</option>
             <option value="admin" ${u.role==='admin'?'selected':''}>Admin</option>
           </select>
-          ${u.username!==currentUser?`<button class="btn btn-danger" style="padding:3px 8px;font-size:9px" onclick="deleteUser('${esc(u.username)}')">Delete</button>`:'<span style="font-family:var(--font-mono);font-size:10px;color:var(--text-dim)">(you)</span>'}
+          ${u.username!==currentUser?`<button class="btn btn-danger" style="padding:3px 8px;font-size:9px" data-act="delete" data-user="${esc(u.username)}">Delete</button>`:'<span style="font-family:var(--font-mono);font-size:10px;color:var(--text-dim)">(you)</span>'}
         </td>
       </tr>`).join('');
+    /* Handlers are attached here, with the username read back from a data
+       attribute, instead of being written into an onclick="..." string. A
+       username is text; splicing it into JavaScript made it code. */
+    tbody.querySelectorAll('[data-act="role"]').forEach(s =>
+      s.addEventListener('change', () => changeRole(s.dataset.user, s.value)));
+    tbody.querySelectorAll('[data-act="delete"]').forEach(b =>
+      b.addEventListener('click', () => deleteUser(b.dataset.user)));
   } catch(e) {
     toast('Error','Failed to load users: '+e.message,'error');
   }
@@ -1425,7 +1457,9 @@ async function createUser() {
 async function deleteUser(username) {
   if (!confirm(`Delete user "${username}"? This cannot be undone.`)) return;
   try {
-    await apiFetch(`/users/${username}`,{method:'DELETE'});
+    // Encoded: a username such as "../alerts" otherwise normalises to
+    // DELETE /alerts and wipes every alert instead of removing a user.
+    await apiFetch(`/users/${encodeURIComponent(username)}`,{method:'DELETE'});
     toast('Deleted',`User ${username} removed.`,'ok');
     await loadUsers();
   } catch(e) { toast('Error',e.message,'error'); }
@@ -1433,7 +1467,7 @@ async function deleteUser(username) {
 
 async function changeRole(username, role) {
   try {
-    await apiFetch(`/users/${username}/role`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({role})});
+    await apiFetch(`/users/${encodeURIComponent(username)}/role`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({role})});
     toast('Role Updated',`${username} → ${role}`,'ok');
     await loadUsers();
   } catch(e) { toast('Error',e.message,'error'); }
@@ -1737,7 +1771,12 @@ function handleModalClick(e) { if(e.target.id==='modal') closeModal(); }
 ═══════════════════════════════════════════ */
 function el(id){return document.getElementById(id)}
 function setText(id,val){const e=el(id);if(e&&e.textContent!==String(val))e.textContent=val}
-function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
+/* Severity comes from the server and, through POST /alert, ultimately from a
+   sensor. It is used as a CSS class and a label, so it is mapped onto the five
+   known values instead of escaped: anything else renders as 'low'. The server
+   validates it too; this keeps the page safe against an older or hostile one. */
+function sevKey(s){const k=String(s||'').toLowerCase();return ['critical','high','medium','low','info'].includes(k)?k:'low'}
 function fmtNum(n){return Number(n).toLocaleString()}
 function fmtDate(){return new Date().toISOString().slice(0,10)}
 function fmtUptime(sec){if(sec<60)return Math.floor(sec)+'s';if(sec<3600)return Math.floor(sec/60)+'m '+Math.floor(sec)%60+'s';return Math.floor(sec/3600)+'h '+Math.floor((sec%3600)/60)+'m'}

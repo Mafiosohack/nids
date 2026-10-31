@@ -153,6 +153,52 @@ class TestLegitimateSshSuppression(ShellCase):
         self.assertIsNotNone(f)
 
 
+class TestExemptionIsNarrow(ShellCase):
+    """2026-10-31 audit: one confirmed login used to silence every shell
+    between that host pair, on any port, for an hour. A log line proves that
+    ONE session on the SSH port was a real login - nothing more."""
+
+    def test_confirmed_login_does_not_cover_a_shell_on_another_port(self):
+        """Breaks if the exemption stops checking the port: a bind shell on 4444
+        between an admin's workstation and a server would be invisible."""
+        self.det.note_authorized_session(ADMIN, METASPLOITABLE, ts=self.clock.now)
+        f = self.type_session(typist=ADMIN, listener=METASPLOITABLE, tport=4444,
+                              opened_by=ADMIN)
+        self.assertIsNotNone(f)
+        self.assertEqual(f.severity, "critical")
+
+    def test_confirmed_login_does_not_cover_a_later_session(self):
+        """Breaks if the exemption is a pair-wide TTL again: a second, unlogged
+        session ten minutes later must still be judged."""
+        self.det.note_authorized_session(ADMIN, METASPLOITABLE, ts=self.clock.now)
+        f = self.type_session(typist=ADMIN, listener=METASPLOITABLE, tport=22,
+                              opened_by=ADMIN, t0=self.clock.now + 600)
+        self.assertIsNotNone(f)
+
+    def test_login_logged_shortly_after_the_handshake_still_counts(self):
+        """Usability: auth.log is written after the TCP handshake and the host
+        sensor polls every few seconds, so the login note arrives late."""
+        t0 = self.clock.now
+        self.det.note_authorized_session(ADMIN, METASPLOITABLE, ts=t0 + 15)
+        f = self.type_session(typist=ADMIN, listener=METASPLOITABLE, tport=22,
+                              opened_by=ADMIN, t0=t0)
+        self.assertIsNone(f)
+
+    def test_standing_pair_does_not_cover_a_non_shell_port(self):
+        """assets.json exemptions describe SSH access, not 'anything goes'."""
+        self.det.authorize_pair(ADMIN, METASPLOITABLE)
+        f = self.type_session(typist=ADMIN, listener=METASPLOITABLE, tport=4444,
+                              opened_by=ADMIN)
+        self.assertIsNotNone(f)
+
+    def test_standing_pair_still_covers_ssh(self):
+        """Usability: the jump-box exemption keeps doing its job."""
+        self.det.authorize_pair(ADMIN, METASPLOITABLE)
+        f = self.type_session(typist=ADMIN, listener=METASPLOITABLE, tport=22,
+                              opened_by=ADMIN)
+        self.assertIsNone(f)
+
+
 class TestNonShellTrafficIsNotFlagged(ShellCase):
 
     def test_file_transfer_is_not_a_shell(self):

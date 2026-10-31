@@ -132,7 +132,12 @@ class InteractiveShellDetector:
         # It is a standing exemption, so keep it narrow — a shell from an
         # allowlisted pair is invisible to this rule.
         authorized_pairs: Optional[Set[Tuple[str, str]]] = None,
+        # How long a confirmed login is remembered at all (memory housekeeping).
         authorized_session_ttl: float = 3600.0,
+        # A confirmed login vouches only for a flow that STARTED within this many
+        # seconds of it. Generous on purpose: auth.log is written after the TCP
+        # handshake, and host_log_sensor.py polls every few seconds.
+        login_match_window_sec: float = 120.0,
         cooldown_sec: float = 600.0,
         max_flows: int = 8192,
         clock: Callable[[], float] = time.time,
@@ -149,12 +154,14 @@ class InteractiveShellDetector:
         self.expected_shell_ports = set(expected_shell_ports or {22})
         self.authorized_pairs = set(authorized_pairs or ())
         self.authorized_session_ttl = float(authorized_session_ttl)
+        self.login_match_window_sec = float(login_match_window_sec)
         self.cooldown_sec = float(cooldown_sec)
         self.max_flows = int(max_flows)
         self.clock = clock
 
         self._flows: Dict[Tuple, _Flow] = {}
-        self._authorized: Dict[Tuple[str, str], float] = {}
+        # (client, server) -> timestamps of confirmed logins, newest last
+        self._authorized: Dict[Tuple[str, str], List[float]] = {}
         self._last_alert: Dict[Tuple[str, str], float] = {}
 
     # ── session authorisation (from host_log_sensor.py) ──────────────────────
@@ -162,22 +169,36 @@ class InteractiveShellDetector:
                                 ts: Optional[float] = None) -> None:
         """Record that the host sensor confirmed a real login for this pair.
 
-        This is the correlation that keeps legitimate SSH quiet. It is
-        deliberately keyed on the host PAIR and not the 4-tuple: the auth log
-        knows who logged in from where, not which ephemeral port they used.
+        This is the correlation that keeps legitimate SSH quiet. It is keyed on
+        the host PAIR because the auth log knows who logged in from where, not
+        which ephemeral port they used - but it is MATCHED narrowly (see
+        _is_authorized): one login vouches for one session on the SSH port.
         """
         now = self.clock() if ts is None else ts
-        self._authorized[(client, server)] = now
+        logins = self._authorized.setdefault((client, server), [])
+        logins.append(now)
+        logins[:] = [t for t in logins if now - t <= self.authorized_session_ttl][-32:]
 
     def authorize_pair(self, client: str, server: str) -> None:
         """Add a standing exemption. Loaded from assets.json at startup."""
         self.authorized_pairs.add((client, server))
 
     def _is_authorized(self, flow: _Flow, now: float) -> bool:
-        if (flow.client, flow.server) in self.authorized_pairs:
+        """Does anything vouch for THIS flow being a legitimate login?
+
+        Only ever for a remote-access port. A log line or an assets.json entry
+        says "this host may SSH to that one"; it says nothing about a shell on
+        4444 between the same two hosts, which is exactly what an attacker on a
+        compromised admin workstation would open. The audit found the old
+        version silenced every port, for an hour, off a single login.
+        """
+        if flow.sport not in self.expected_shell_ports:
+            return False
+        pair = (flow.client, flow.server)
+        if pair in self.authorized_pairs:
             return True
-        seen = self._authorized.get((flow.client, flow.server))
-        return seen is not None and now - seen <= self.authorized_session_ttl
+        return any(abs(flow.first_ts - t) <= self.login_match_window_sec
+                   for t in self._authorized.get(pair, ()))
 
     # ── flow tracking ─────────────────────────────────────────────────────────
     def open_flow(self, client: str, server: str, cport: int, sport: int,

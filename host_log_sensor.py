@@ -36,11 +36,13 @@ from typing import Dict, Optional
 
 import requests
 
+from utils.sensor_client import TransportError, client_for, report_connection
+
 # ─────────────────────────────────────────────
 #  CONFIG
 # ─────────────────────────────────────────────
-NIDS_ALERT_URL   = "http://127.0.0.1:8000/alert"
-SENSOR_API_KEY   = "sensor-key-change-me-in-production"   # must match main.py
+# Transport + identity: utils/sensor_client.py, as the "host" sensor - the only
+# one main.py lets vouch for an SSH login. Nothing to configure on main.py's box.
 ALERT_TIMEOUT    = 3
 
 # Directory to watch for auth-log files
@@ -77,20 +79,31 @@ RE_SYSLOG   = re.compile(
     r"^(?P<mon>\w{3})\s+(?P<day>\d+)\s+(?P<time>\d{2}:\d{2}:\d{2})\s+"
     r"(?P<host>\S+)\s+(?P<msg>.*)$"
 )
+# Every pattern is anchored at the START of the syslog message (`^program[pid]:`)
+# because an SSH username is attacker-typed text that sshd copies into its own
+# log lines. Unanchored, a login attempt as the user
+#     "x sudo: a : USER=root ; COMMAND=/bin/bash"
+# produced a forged critical Root Access alert, and "root from 10.0.0.5" pinned
+# a brute force on 10.0.0.5 (the fail2ban/DenyHosts class of bug).
+#
+# RE_FAILED is also anchored at the END: sshd always prints the real source as
+# the final "from <ip> port <n> ssh2", so matching the username lazily up to
+# that suffix means text inside the username can never become the source IP.
+_IPV4 = r"\d{1,3}(?:\.\d{1,3}){3}"
 RE_FAILED   = re.compile(
-    r"sshd\[\d+\]:\s+Failed password for (?:invalid user )?(?P<user>\S+)\s+"
-    r"from (?P<ip>\d{1,3}(?:\.\d{1,3}){3})"
+    r"^sshd\[\d+\]:\s+Failed password for (?:invalid user )?(?P<user>.*?) "
+    r"from (?P<ip>" + _IPV4 + r") port \d+(?: ssh2)?(?: \[preauth\])?\s*$"
 )
 RE_ACCEPT   = re.compile(
-    r"sshd\[\d+\]:\s+Accepted (?:password|publickey) for (?P<user>\S+)\s+"
-    r"from (?P<ip>\d{1,3}(?:\.\d{1,3}){3})"
+    r"^sshd\[\d+\]:\s+Accepted (?:password|publickey|keyboard-interactive/pam) "
+    r"for (?P<user>\S+) from (?P<ip>" + _IPV4 + r") port \d+(?: ssh2)?(?::.*)?\s*$"
 )
-RE_SUDO     = re.compile(r"sudo:\s+(?P<user>\S+)\s*:.*COMMAND=(?P<cmd>.+)$")
+RE_SUDO     = re.compile(r"^sudo(?:\[\d+\])?:\s+(?P<user>\S+)\s*:.*COMMAND=(?P<cmd>.+)$")
 RE_SUDO_TGT = re.compile(r"USER=(?P<target>\S+)")
-RE_SU_ROOT  = re.compile(r"\bsu(?:\[\d+\])?:.*(?:to root|session opened for user root)")
-RE_USERADD  = re.compile(r"useradd\[\d+\]:\s+new user:\s+name=(?P<name>[^,]+)(?:.*UID=(?P<uid>\d+))?")
+RE_SU_ROOT  = re.compile(r"^su(?:\[\d+\])?:.*(?:to root|session opened for user root)")
+RE_USERADD  = re.compile(r"^useradd\[\d+\]:\s+new user:\s+name=(?P<name>[^,]+)(?:.*UID=(?P<uid>\d+))?")
 RE_GROUPADD = re.compile(
-    r"(?:usermod|gpasswd)\[\d+\]:.*?(?:add '(?P<name>[^']+)' to group|"
+    r"^(?:usermod|gpasswd)\[\d+\]:.*?(?:add '(?P<name>[^']+)' to group|"
     r"user (?P<name2>\S+) added by).*?'?(?P<group>sudo|wheel|admin|root)'?"
 )
 
@@ -125,15 +138,20 @@ def send_alert(alert_type: str, severity: str, src: str, dst: Optional[str],
         "details":    details or {},
     }
     print(f"[HOST-ALERT] [{severity.upper()}] {alert_type} -> {message}")
+    client, why = client_for("host")
+    if client is None:
+        print(f"  !!  Not sent: {why}")
+        return
     try:
-        resp = requests.post(NIDS_ALERT_URL, json=payload, timeout=ALERT_TIMEOUT,
-                             headers={"X-Sensor-Key": SENSOR_API_KEY})
+        resp = client.post(payload, timeout=ALERT_TIMEOUT)
         if resp.status_code == 200:
             print(f"  OK  Accepted by NIDS (id={resp.json().get('alert_id')})")
         else:
             print(f"  !!  NIDS returned HTTP {resp.status_code}")
+    except TransportError as e:
+        print(f"  !!  Not sent: {e}")
     except requests.exceptions.ConnectionError:
-        print(f"  !!  NIDS unreachable at {NIDS_ALERT_URL}. Is main.py running?")
+        print(f"  !!  NIDS unreachable at {client.base}. Is main.py running?")
     except Exception as e:
         print(f"  !!  Alert error: {e}")
 
@@ -399,14 +417,7 @@ if __name__ == "__main__":
     print("=" * 60)
     print()
 
-    try:
-        r = requests.get("http://127.0.0.1:8000/health", timeout=3)
-        print("[+] main.py is reachable. Starting watch loop..."
-              if r.status_code == 200 else
-              f"[!] main.py returned HTTP {r.status_code} — alerts may fail")
-    except Exception:
-        print("[!] Cannot reach main.py at http://127.0.0.1:8000")
-        print("    Start main.py first, or alerts will not be stored.")
+    report_connection("host")
     print()
 
     watch_loop()

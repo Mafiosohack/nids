@@ -462,6 +462,15 @@ EXTERNAL_SENSOR_STAGES: Dict[str, Tuple[str, str, str]] = {
 }
 
 
+# Every alert_type POST /alert accepts. This is the set the bundled sensors
+# actually send (live_ids_v2, host_log_sensor, cloud_log_sensor) plus the legacy
+# names, and nothing else: an unrecognised type used to be stored verbatim and
+# rendered on the dashboard. Add a new sensor's types here deliberately.
+SENSOR_ALERT_TYPES = frozenset(LEGACY_TYPE_MAP) | frozenset(EXTERNAL_SENSOR_STAGES) | {
+    "Cloud UDP Amplification",   # cloud_log_sensor.py; no catalogue rule or stage
+}
+
+
 def get_rule(rule_id: str) -> Optional[Rule]:
     return RULES.get(rule_id)
 

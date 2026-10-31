@@ -75,6 +75,16 @@ host_profiles.json
 host_profiles.json.tmp
 *.profiles.json
 
+# Per-deployment secrets, generated on first start (2026-10-31 audit).
+# sensor_keys.json: one key per sensor; whoever holds the "host" key can vouch
+# for SSH logins and so silence the interactive-shell rule.
+# tls/: the server's private key - with it, anyone can impersonate the
+# dashboard to sensors and browsers that pinned this certificate.
+sensor_keys.json
+sensor_keys.json.tmp
+tls/
+*.pem
+
 # Captured traffic (may contain credentials, session tokens, real payloads)
 *.pcapng
 *.cap
