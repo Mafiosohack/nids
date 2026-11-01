@@ -62,6 +62,7 @@ class AddResult:
     record: Optional[dict] = None     # the record created or updated
     evicted: List[dict] = field(default_factory=list)
     collapsed_count: int = 0          # running count on the deduped record
+    reopened: bool = False            # True = this repeat reopened a resolved record
 
 
 class AlertStore:
@@ -126,7 +127,8 @@ class AlertStore:
                 existing["timestamp"] = alert.get("timestamp", existing["timestamp"])
                 existing["message"] = alert.get("message", existing["message"])
                 existing["details"] = alert.get("details", existing["details"])
-                if existing.get("triage_status") == TRIAGE_RESOLVED:
+                reopened = existing.get("triage_status") == TRIAGE_RESOLVED
+                if reopened:
                     existing["triage_status"] = TRIAGE_NEW
                     existing["triage_note"] = (
                         f"recurred after being resolved by "
@@ -142,7 +144,8 @@ class AlertStore:
                               f"(dedup window {int(self.dedup_window_sec)}s)")
                 return AddResult(stored=False, deduped=True, record=existing,
                                  evicted=evicted,
-                                 collapsed_count=existing["count"])
+                                 collapsed_count=existing["count"],
+                                 reopened=reopened)
 
             record = dict(alert)
             record.setdefault("count", 1)

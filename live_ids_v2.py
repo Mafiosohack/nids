@@ -699,7 +699,8 @@ def main():
 
     print(f"[+] Monitoring interface: {args.iface}")
     print(f"[+] Inference triggers at {MIN_PACKETS} packets per flow")
-    print(f"[+] Alerts -> {NIDS_ALERT_URL}")
+    _client, _why = client_for("ml")
+    print(f"[+] Alerts -> {_client.base if _client else f'unavailable ({_why})'}")
     print("-" * 60)
 
     # "auto"/empty -> let scapy pick the default interface.

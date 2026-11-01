@@ -32,7 +32,9 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 
 /* ── LOGIN ── */
 /* Above the login overlay (9000): it must be readable while credentials are typed. */
-.transport-warning{position:fixed;top:0;left:0;right:0;z-index:9500;padding:7px 16px;background:var(--red);color:#fff;font-family:var(--font-mono);font-size:12px;text-align:center;line-height:1.4}
+/* Sticky, not fixed: a fixed banner sat on top of the top bar and swallowed
+   clicks on Logout and the Dashboard | History switch. */
+.transport-warning{position:static;padding:7px 16px;background:var(--red);color:#fff;font-family:var(--font-mono);font-size:12px;text-align:center;line-height:1.4}
 .transport-warning b{font-weight:700}
 .transport-warning.hidden{display:none}
 .login-overlay{position:fixed;inset:0;background:var(--bg);z-index:9000;display:flex;align-items:center;justify-content:center}
@@ -109,17 +111,55 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 .panel-meta{font-family:var(--font-mono);font-size:10px;color:var(--text-dim);display:flex;align-items:center;gap:8px}
 .panel-body{padding:14px}
 .live-badge{display:flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:10px;color:var(--text-dim);letter-spacing:.5px}
-.row-2col{display:grid;grid-template-columns:1.7fr 1fr;gap:14px}
+.row-2col{display:grid;grid-template-columns:1.25fr 1fr;gap:14px}
 .row-3col{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
 .row-a{display:grid;grid-template-columns:1fr 1.5fr;gap:14px}
 .chart-wrap{height:220px;position:relative}
-.chart-wrap-lg{height:260px;position:relative}
+.chart-wrap-lg{height:540px;position:relative}
 
 /* ── ALERTS LIST ── */
-.alerts-container{display:flex;flex-direction:column;gap:3px;max-height:400px;overflow-y:auto;padding:2px 0}
+.alerts-container{display:flex;flex-direction:column;gap:4px;max-height:560px;overflow-y:auto;padding:2px 0}
+.feed-ctl{display:flex;align-items:center;gap:8px;margin-left:auto;flex-wrap:wrap}
+.btn-sm{padding:4px 10px}
+.link-btn{background:none;border:none;padding:0;font-family:var(--font-mono);font-size:11px;color:var(--blue);cursor:pointer;text-decoration:underline}
+.link-btn.hidden{display:none}
+.feed-cleared{display:flex;flex-direction:column;gap:6px;align-items:center;font-size:12px;color:var(--text);line-height:1.5}
+.feed-cleared .fc-h{font-size:13px;font-weight:600;color:var(--text-bright)}
+.feed-cleared .fc-sub{color:var(--text-dim)}
+
+/* ── VIEW SWITCH + HISTORY ── */
+.main.hidden{display:none}
+.views{display:inline-flex;border:1px solid var(--border2);border-radius:6px;overflow:hidden;background:var(--card2)}
+.views button{font-family:var(--font-mono);font-size:11px;font-weight:500;letter-spacing:.4px;padding:7px 14px;border:none;background:transparent;color:var(--text-dim);cursor:pointer}
+.views button.on{background:var(--card);color:var(--text-bright);font-weight:600;box-shadow:inset 0 -2px 0 var(--blue)}
+.hist-head{display:flex;align-items:flex-end;justify-content:space-between;gap:14px;flex-wrap:wrap}
+.hist-title{font-family:var(--font-mono);font-size:16px;font-weight:600;color:var(--text-bright);margin:0;letter-spacing:.5px}
+.hist-sub{font-family:var(--font-mono);font-size:11px;color:var(--text-dim);margin-top:3px}
+.hist-note{font-family:var(--font-mono);font-size:11px;color:var(--text-dim);background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px}
+.hist-filters{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;padding:12px 14px}
+.hf{display:flex;flex-direction:column;gap:4px}
+.hf label,.hf .hf-lbl{font-family:var(--font-mono);font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim)}
+.hf input,.hf select{background:var(--card2);border:1px solid var(--border2);border-radius:4px;padding:6px 9px;font-family:var(--font-code);font-size:12px;color:var(--text-bright);outline:none}
+.hf-sevs{display:flex;gap:4px;flex-wrap:wrap}
+.hsev{font-family:var(--font-mono);font-size:10px;font-weight:600;letter-spacing:.6px;padding:5px 9px;border-radius:4px;border:1px solid var(--border2);background:var(--card);color:var(--text);cursor:pointer;text-transform:uppercase}
+.hsev[aria-pressed="false"]{opacity:.45;text-decoration:line-through}
+.hist-wrap{overflow-x:auto;border-top:1px solid var(--border)}
+.hist-tbl{width:100%;border-collapse:collapse;min-width:960px}
+.hist-tbl th{font-family:var(--font-mono);font-size:9px;letter-spacing:1px;color:var(--text-dim);text-transform:uppercase;padding:8px 12px;border-bottom:1px solid var(--border);text-align:left;font-weight:500;background:var(--card2);white-space:nowrap}
+.hist-tbl td{padding:9px 12px;border-bottom:1px solid var(--border);font-size:12px;color:var(--text-bright);vertical-align:top}
+.hist-tbl tbody tr{cursor:pointer}
+.hist-tbl tbody tr:hover{background:var(--card2)}
+.hist-tbl td.mono{font-family:var(--font-code);font-size:11px}
+.hist-tbl tr.sev-critical td:first-child{box-shadow:inset 5px 0 0 var(--red)}
+.hist-tbl tr.sev-high td:first-child{box-shadow:inset 4px 0 0 var(--amber)}
+.hist-tbl tr.sev-medium td:first-child{box-shadow:inset 3px 0 0 var(--yellow)}
+.hist-tbl tr.sev-low td:first-child{box-shadow:inset 2px 0 0 var(--border2)}
+.hist-rid{display:block;font-family:var(--font-mono);font-size:10px;color:var(--text-dim)}
+.hist-pager{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px;flex-wrap:wrap;font-family:var(--font-mono);font-size:11px;color:var(--text)}
+.hist-pager .btn[disabled]{opacity:.45;cursor:default}
 .alerts-container::-webkit-scrollbar{width:4px}
 .alerts-container::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
-.alert-item{display:flex;align-items:flex-start;gap:10px;padding:9px 12px;border-left:3px solid transparent;border-radius:0 4px 4px 0;background:var(--card2);cursor:pointer;transition:background .15s,transform .1s}
+.alert-item{display:flex;align-items:flex-start;gap:11px;padding:11px 14px;border-left:3px solid transparent;border-radius:0 4px 4px 0;background:var(--card2);cursor:pointer;transition:background .15s,transform .1s}
 .alert-item:hover{background:var(--card3);transform:translateX(2px)}
 /* Severity is ordered by weight as well as hue, so the ranking survives
    colour-blindness and greyscale: stripe width, then tag fill below. */
@@ -127,14 +167,14 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 .alert-item.sev-high{border-left:4px solid var(--amber)}
 .alert-item.sev-medium{border-left:3px solid var(--yellow)}
 .alert-item.sev-low{border-left:2px solid var(--border2)}
-.alert-sev-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;margin-top:4px}
+.alert-sev-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;margin-top:5px}
 .sev-critical .alert-sev-dot{background:var(--red)}
 .sev-high .alert-sev-dot{background:var(--amber)}
 .sev-medium .alert-sev-dot{background:var(--yellow)}
 .sev-low .alert-sev-dot{background:transparent;border:1px solid var(--text-muted)}
 .alert-body{flex:1;min-width:0}
 .alert-top{display:flex;align-items:center;gap:7px;margin-bottom:3px;flex-wrap:wrap}
-.sev-tag{font-family:var(--font-mono);font-size:9px;font-weight:600;padding:1px 6px;border-radius:3px;letter-spacing:.8px;text-transform:uppercase;flex-shrink:0}
+.sev-tag{font-family:var(--font-mono);font-size:10px;font-weight:600;padding:1px 6px;border-radius:3px;letter-spacing:.8px;text-transform:uppercase;flex-shrink:0}
 /* Fill steps down with severity: solid → tint → outline → dashed outline.
    LOW is neutral, not green: green elsewhere means "system healthy", and a
    real finding must not read as "all good". */
@@ -142,11 +182,11 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 .tag-high,.modal-sev.high{background:var(--amber-dim);color:var(--amber-text);border:1px solid var(--amber);font-weight:700}
 .tag-medium,.modal-sev.medium{background:transparent;color:var(--yellow-text);border:1px solid var(--yellow)}
 .tag-low,.modal-sev.low{background:transparent;color:var(--text-dim);border:1px dashed var(--border2);font-weight:500}
-.alert-type-tag{font-family:var(--font-mono);font-size:10px;color:var(--blue);flex-shrink:0}
-.alert-ts{font-family:var(--font-mono);font-size:10px;color:var(--text-dim);flex:1;text-align:right;white-space:nowrap}
-.alert-msg{font-size:12px;color:var(--text);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.alert-src{font-family:var(--font-mono);font-size:10px;color:var(--text-dim);margin-top:2px}
-.alert-count-badge{flex-shrink:0;font-family:var(--font-mono);font-size:10px;font-weight:600;background:var(--card3);border:1px solid var(--border2);color:var(--text);padding:2px 7px;border-radius:10px;align-self:flex-start;margin-top:2px}
+.alert-type-tag{font-family:var(--font-mono);font-size:11px;color:var(--blue);flex-shrink:0}
+.alert-ts{font-family:var(--font-mono);font-size:11px;color:var(--text-dim);flex:1;text-align:right;white-space:nowrap}
+.alert-msg{font-size:13px;color:var(--text);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.alert-src{font-family:var(--font-mono);font-size:11px;color:var(--text-dim);margin-top:2px}
+.alert-count-badge{flex-shrink:0;font-family:var(--font-mono);font-size:11px;font-weight:600;background:var(--card3);border:1px solid var(--border2);color:var(--text);padding:2px 7px;border-radius:10px;align-self:flex-start;margin-top:2px}
 .no-alerts-msg{padding:32px;text-align:center;font-family:var(--font-mono);font-size:11px;color:var(--text-dim)}
 
 /* ── Kill chain panel ──────────────────────────────────────────────────────
@@ -197,7 +237,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 .q-n{font-weight:600;color:var(--text)}
 .q-filter{margin-left:auto;font-family:var(--font-code);font-size:11px;padding:3px 9px;border-radius:4px;border:1px solid var(--blue);background:var(--blue-dim);color:var(--blue);cursor:pointer}
 .q-filter.hidden{display:none}
-.alert-triage{font-family:var(--font-mono);font-size:9px;color:var(--text-dim);margin-top:2px}
+.alert-triage{font-family:var(--font-mono);font-size:10px;color:var(--text-dim);margin-top:2px}
 
 /* ── IP / PORT LISTS ── */
 .ip-list,.port-list{display:flex;flex-direction:column;gap:4px}
@@ -411,6 +451,11 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
       <div class="logo-sub">Security Operations Center</div>
     </div>
   </div>
+  <!-- Same page, same session: the token lives only in this page's memory. -->
+  <nav class="views" aria-label="View">
+    <button class="on" data-action="showView" data-arg="dashboard" aria-current="page">Dashboard</button>
+    <button data-action="showView" data-arg="history">History</button>
+  </nav>
   <div class="topbar-center">
     <div class="sys-pill">Interface <span class="val" id="tp-iface">—</span></div>
     <div class="sys-pill">Sniffer <span class="val" id="tp-sniffer" style="color:var(--amber)">Checking</span></div>
@@ -428,7 +473,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 </div>
 
 <!-- MAIN -->
-<div class="main">
+<div class="main" id="view-dashboard">
 
   <div class="offline-banner hidden" id="offline-banner">
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -486,10 +531,17 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--text-dim)" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
           Alert Queue
         </span>
-        <div class="live-badge" id="live-badge"><span class="live-dot"></span> <span id="live-text">LIVE</span></div>
+        <div class="feed-ctl">
+          <div class="live-badge" id="live-badge"><span class="live-dot"></span> <span id="live-text">LIVE</span></div>
+          <!-- Clear hides what is listed now, in this browser only. It is not a
+               verdict: nothing is deleted or marked reviewed. -->
+          <button class="link-btn hidden" id="feed-show-all" data-action="showAllFeed">Show all</button>
+          <button class="btn btn-neutral btn-sm" data-action="clearFeed" title="Hide the alerts listed now. Only this view changes: nothing is deleted or marked reviewed.">Clear</button>
+          <button class="btn btn-neutral btn-sm" data-action="showView" data-arg="history">History →</button>
+        </div>
       </div>
       <div class="q-bar">
-        <div class="q-tabs" role="tablist" aria-label="Triage status">
+        <div class="q-tabs" id="queue-tabs" role="tablist" aria-label="Triage status">
           <button class="q-tab on" role="tab" aria-selected="true" data-tab="new" data-action="setQueueTab" data-arg="new">Needs review <span class="q-n" id="qn-new">0</span></button>
           <button class="q-tab" role="tab" aria-selected="false" data-tab="confirmed" data-action="setQueueTab" data-arg="confirmed">Confirmed <span class="q-n" id="qn-confirmed">0</span></button>
           <button class="q-tab" role="tab" aria-selected="false" data-tab="false_positive" data-action="setQueueTab" data-arg="false_positive">False positive <span class="q-n" id="qn-false_positive">0</span></button>
@@ -609,6 +661,70 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
     </div>
   </div>
 
+</div>
+
+<!-- HISTORY: every recorded alert, read from the database (GET /alerts/history),
+     not the live store. Fetched on a filter, page or Refresh — never polled, so
+     rows do not move while someone is reading them. -->
+<div class="main hidden" id="view-history">
+  <div class="hist-head">
+    <div>
+      <h1 class="hist-title">Alert History</h1>
+      <div class="hist-sub">Every recorded alert, from the database · fetched when you change a filter, not live</div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-blue" id="hist-refresh" data-action="histRefresh">↺ Refresh</button>
+      <button class="btn btn-amber analyst-up" data-action="exportHistory">↓ Export CSV</button>
+    </div>
+  </div>
+  <div class="hist-note">The live view drops medium alerts after 24 h and low after 6 h. History keeps the last 50,000 alerts of every severity.</div>
+  <div class="panel">
+    <div class="q-bar">
+      <div class="q-tabs" id="hist-tabs" role="tablist" aria-label="Review status">
+        <button class="q-tab on" role="tab" aria-selected="true" data-tab="new" data-action="histStatus" data-arg="new">Needs review <span class="q-n" id="hn-new">—</span></button>
+        <button class="q-tab" role="tab" aria-selected="false" data-tab="confirmed" data-action="histStatus" data-arg="confirmed">Confirmed <span class="q-n" id="hn-confirmed">—</span></button>
+        <button class="q-tab" role="tab" aria-selected="false" data-tab="false_positive" data-action="histStatus" data-arg="false_positive">False positive <span class="q-n" id="hn-false_positive">—</span></button>
+        <button class="q-tab" role="tab" aria-selected="false" data-tab="resolved" data-action="histStatus" data-arg="resolved">Resolved <span class="q-n" id="hn-resolved">—</span></button>
+        <button class="q-tab" role="tab" aria-selected="false" data-tab="all" data-action="histStatus" data-arg="all">All <span class="q-n" id="hn-all">—</span></button>
+      </div>
+    </div>
+    <div class="hist-filters">
+      <div class="hf">
+        <span class="hf-lbl" id="hf-sev-lbl">Severity</span>
+        <div class="hf-sevs" role="group" aria-labelledby="hf-sev-lbl">
+          <button class="hsev" aria-pressed="true" data-action="histSeverity" data-arg="critical">Crit</button>
+          <button class="hsev" aria-pressed="true" data-action="histSeverity" data-arg="high">High</button>
+          <button class="hsev" aria-pressed="true" data-action="histSeverity" data-arg="medium">Medium</button>
+          <button class="hsev" aria-pressed="true" data-action="histSeverity" data-arg="low">Low</button>
+          <button class="hsev" aria-pressed="true" data-action="histSeverity" data-arg="info">Info</button>
+        </div>
+      </div>
+      <div class="hf"><label for="hist-since">Time</label>
+        <select id="hist-since">
+          <option value="">All time</option><option value="3600">Last 1 h</option>
+          <option value="86400">Last 24 h</option><option value="604800">Last 7 days</option>
+        </select></div>
+      <div class="hf"><label for="hist-ip">IP (source or destination)</label>
+        <input id="hist-ip" type="text" maxlength="45" placeholder="e.g. 192.168.56.101" style="width:190px" autocomplete="off"></div>
+      <div class="hf"><label for="hist-rule">Rule</label>
+        <select id="hist-rule" style="max-width:240px"><option value="">Any rule</option></select></div>
+      <div class="hf" style="flex:1;min-width:200px"><label for="hist-q">Search message</label>
+        <input id="hist-q" type="search" maxlength="200" placeholder="text in the alert message" autocomplete="off"></div>
+    </div>
+    <div class="hist-wrap">
+      <table class="hist-tbl">
+        <thead><tr><th scope="col">Time</th><th scope="col">Severity</th><th scope="col">Rule</th><th scope="col">Source → Destination</th><th scope="col">Count</th><th scope="col">Status</th><th scope="col">Reviewed by</th></tr></thead>
+        <tbody id="hist-body"></tbody>
+      </table>
+    </div>
+    <div class="hist-pager">
+      <span id="hist-range">—</span>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-neutral" id="hist-prev" data-action="histPage" data-arg="prev" disabled>‹ Prev</button>
+        <button class="btn btn-neutral" id="hist-next" data-action="histPage" data-arg="next" disabled>Next ›</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- MODAL -->
@@ -897,6 +1013,9 @@ function onLoginSuccess() {
   pollIntervals.push(setInterval(pollQueue,     POLL_MS));
   pollIntervals.push(setInterval(pollStatus,    POLL_MS * 2));
   pollIntervals.push(setInterval(pollIncidents, POLL_MS * 2));
+
+  // A reload while on History returns to History (the view lives in the hash).
+  if (location.hash === '#history') showView('history');
 }
 
 function applyRoleUI() {
@@ -933,6 +1052,7 @@ async function pollAlerts() {
     const changed = firstLoad || alerts.length!==allAlerts.length || alerts.some(a=>!lastAlertIds.has(a.id));
 
     allAlerts=alerts; lastAlertIds=newIds;
+    dropStaleFeedMarker();
     checkExploitation(alerts, firstLoad);
 
     if (changed) {
@@ -959,6 +1079,7 @@ async function pollSummary() {
 }
 
 async function pollQueue() {
+  if (feedCleared.id) refreshHistoryNewTotal(false);
   if (queueTab==='all') { queueAlerts=allAlerts; renderAlerts(); return; }
   try {
     const data = await apiFetch(`/alerts?limit=1000&triage=${encodeURIComponent(queueTab)}`);
@@ -967,9 +1088,92 @@ async function pollQueue() {
   } catch { /* transient */ }
 }
 
+/* Clear is a view filter, never a verdict: it hides alerts up to an id, in
+   this browser only. Unreviewed alerts stay "Needs review" in the tab counts,
+   the stat cards, the kill chain and History. Storage can be blocked (private
+   windows), so every access is guarded and the clear then lasts until reload.
+   Repeats fold into the same id, so the marker also keeps each cleared
+   record's count: a cleared alert that fires again (or recurs after being
+   resolved) counts up and comes back. Counts survive a server restart; the
+   server's last_seen does not. */
+const FEED_KEY = 'nids.feed.clearedThrough';
+let feedCleared = loadFeedCleared();
+let historyNewTotal = null, historyNewAt = 0, historyMaxId = null;
+
+function loadFeedCleared() {
+  try {
+    const v = JSON.parse(localStorage.getItem(FEED_KEY) || 'null');
+    if (v && Number.isInteger(v.id) && v.id > 0) {
+      const counts = {};
+      if (v.counts && typeof v.counts === 'object') {
+        for (const [k, n] of Object.entries(v.counts)) {
+          if (/^\d+$/.test(k) && Number.isInteger(n) && n > 0) counts[k] = n;
+        }
+      }
+      return {id: v.id, at: Number(v.at) || 0, counts};
+    }
+  } catch (_) { /* storage blocked or garbage: start uncleared */ }
+  return {id: 0, at: 0, counts: {}};
+}
+function feedShows(a) {
+  const id = a.id || 0;
+  if (id > feedCleared.id) return true;
+  const was = feedCleared.counts[id];
+  return was != null && (a.count || 1) > was;
+}
+function saveFeedCleared() {
+  try {
+    if (feedCleared.id) localStorage.setItem(FEED_KEY, JSON.stringify(feedCleared));
+    else localStorage.removeItem(FEED_KEY);
+  } catch (_) { /* storage blocked: the clear lasts until reload */ }
+}
+function updateFeedControls() {
+  el('feed-show-all').classList.toggle('hidden', !feedCleared.id);
+}
+function clearFeed() {
+  let maxId = 0;
+  const counts = {};
+  for (const a of [...allAlerts, ...queueAlerts]) {
+    if (!a.id) continue;
+    maxId = Math.max(maxId, a.id);
+    counts[a.id] = Math.max(counts[a.id] || 0, a.count || 1);
+  }
+  feedCleared = {id: maxId, at: Date.now(), counts};
+  saveFeedCleared(); updateFeedControls();
+  queueSig = ''; renderAlerts();
+  refreshHistoryNewTotal(true);
+}
+function showAllFeed() {
+  feedCleared = {id: 0, at: 0, counts: {}};
+  saveFeedCleared(); updateFeedControls();
+  queueSig = ''; renderAlerts();
+}
+/* How many alerts still need review in the whole record, for the cleared
+   state. Same number the History view shows; refreshed at most every 15 s. */
+async function refreshHistoryNewTotal(force) {
+  if (!force && Date.now() - historyNewAt < 15000) return;
+  historyNewAt = Date.now();
+  try {
+    const [d, top] = await Promise.all([
+      apiFetch('/alerts/history?status=new&limit=1'),
+      apiFetch('/alerts/history?status=all&sort=newest&limit=1')]);
+    historyMaxId = (top.rows && top.rows.length) ? (top.rows[0].id || 0) : 0;
+    dropStaleFeedMarker();
+    if (d.total !== historyNewTotal) { historyNewTotal = d.total; queueSig = ''; renderAlerts(); }
+  } catch (_) { /* transient */ }
+}
+/* A marker above every id the DATABASE holds is stale (admin wipe, fresh DB):
+   it would hide every future alert. Drop it. The live store is not the
+   yardstick: it expires medium/low alerts, so its newest id can fall below a
+   perfectly good marker. */
+function dropStaleFeedMarker() {
+  if (!feedCleared.id || historyMaxId == null) return;
+  if (feedCleared.id > historyMaxId) showAllFeed();
+}
+
 function setQueueTab(tab) {
   queueTab = tab;
-  document.querySelectorAll('.q-tab').forEach(b => {
+  document.querySelectorAll('#queue-tabs .q-tab').forEach(b => {
     const on = b.dataset.tab===tab;
     b.classList.toggle('on', on); b.setAttribute('aria-selected', on?'true':'false');
   });
@@ -1043,16 +1247,29 @@ function renderAlerts() {
   const container=el('alerts-list');
   let list = queueAlerts;
   if (ipFilter) list = list.filter(a => a.src===ipFilter || a.dst===ipFilter);
+  if (feedCleared.id) list = list.filter(feedShows);
   // The review queue is worked worst-first; the other tabs are history, newest first.
   if (queueTab==='new') {
     list = [...list].sort((a,b) =>
       (SEV_RANK[(b.severity||'').toLowerCase()]||0) - (SEV_RANK[(a.severity||'').toLowerCase()]||0)
       || (b.id||0) - (a.id||0));
   }
-  const sig = queueTab+'|'+ipFilter+'|'+list.map(a=>a.id+':'+a.triage_status+':'+a.count).join(',');
+  const sig = queueTab+'|'+ipFilter+'|'+feedCleared.id+'|'+historyNewTotal+'|'
+    +list.map(a=>a.id+':'+a.triage_status+':'+a.count).join(',');
   if (sig===queueSig) return;
   queueSig = sig;
 
+  if (!list.length && feedCleared.id) {
+    const at = new Date(feedCleared.at || Date.now())
+      .toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+    const n = historyNewTotal;
+    const need = n==null ? ''
+      : n ? `${fmtNum(n)} alert${n===1?'':'s'} still need review → <button class="link-btn" data-action="openReviewQueue">open History</button>`
+          : 'Nothing awaiting review.';
+    container.innerHTML = `<div class="no-alerts-msg feed-cleared"><div class="fc-h">Cleared at ${esc(at)}</div>`
+      + `<div>${need}</div><div class="fc-sub">New alerts appear here as they arrive. Nothing was deleted or marked reviewed.</div></div>`;
+    return;
+  }
   if (!list.length) {
     const msg = queueTab==='new'
       ? (ipFilter ? `Nothing awaiting review for ${esc(ipFilter)}.` : 'Queue clear — every alert has a verdict.')
@@ -1492,6 +1709,8 @@ async function clearAlerts() {
   if (!confirm(`Permanently delete ${what}?\n\nThis also erases their triage verdicts and resets kill-chain correlation. It cannot be undone — use Export CSV first if you need a copy.`)) return;
   try {
     await apiFetch('/alerts',{method:'DELETE'});
+    // Ids can restart after a wipe; an old clear marker would hide them all.
+    feedCleared={id:0,at:0,counts:{}}; saveFeedCleared(); updateFeedControls();
     allAlerts=[]; lastAlertIds=new Set();
     queueAlerts=[]; queueSig='';
     renderAlerts(); updateDistribution(); updateTopIPs(); updateTopPorts(); updateTimeline();
@@ -1502,12 +1721,9 @@ async function clearAlerts() {
 
 function exportAlerts() {
   if (!allAlerts.length) { toast('No Data','Nothing to export.','warn'); return; }
-  const rows=['ID,Type,Severity,Source,Destination,Protocol,Message,Timestamp'];
-  allAlerts.forEach(a=>rows.push([a.id||'',a.type||'',a.severity||'',a.src||'',a.dst||'',a.protocol||'',`"${(a.message||'').replace(/"/g,'""')}"`,a.timestamp||''].join(',')));
-  const blob=new Blob([rows.join('\n')],{type:'text/csv'});
-  const url=URL.createObjectURL(blob);
-  const link=document.createElement('a'); link.href=url; link.download=`nids_alerts_${fmtDate()}.csv`; link.click();
-  URL.revokeObjectURL(url);
+  const rows=[['ID','Type','Severity','Source','Destination','Protocol','Message','Timestamp'].map(csvCell).join(',')];
+  allAlerts.forEach(a=>rows.push([a.id,a.type,a.severity,a.src,a.dst,a.protocol,a.message,a.timestamp].map(csvCell).join(',')));
+  downloadCsv(rows, `nids_alerts_${fmtDate()}.csv`);
   toast('Exported',allAlerts.length+' alerts saved.','ok'); setLastAction('Exported '+allAlerts.length+' alerts');
 }
 
@@ -1641,7 +1857,10 @@ async function loadEvidence(alert) {
     }
     if (c.suppression) add('benign', `Suppressed: #${c.suppression.id} by ${c.suppression.created_by}${c.suppression.note?' ('+c.suppression.note+')':''}.`);
   } catch (e) {
-    add('weak', 'Context unavailable: ' + e.message);
+    // Opened from History: the live store has already forgotten this alert.
+    if (/no longer in the live store/.test(e.message))
+      add('weak', 'Live evidence has expired for this alert (older than the live store). The verdict still applies.');
+    else add('weak', 'Context unavailable: ' + e.message);
   }
   const LEAN = {real:['ev-against','Leans real — '], benign:['ev-for','Leans benign — '], weak:['','']};
   ul.innerHTML = '';
@@ -1670,7 +1889,225 @@ async function submitTriage(status) {
     setLastAction(`Triaged ${r.updated} alert(s) as ${status}`);
     closeModal();
     queueSig=''; pollQueue(); pollSummary(); pollIncidents();
+    if (historyVisible()) { loadHistoryCounts(); loadHistory(); }
   } catch (e) { toast('Triage failed', e.message, 'error'); }
+}
+
+/* ═══════════════════════════════════════════
+   HISTORY VIEW
+   Every recorded alert, from the database (GET /alerts/history). Same page
+   and session as the dashboard — the token is memory-only, so a separate URL
+   would mean a second login. Fetched on demand, never polled.
+═══════════════════════════════════════════ */
+const HIST_SEVS = ['critical','high','medium','low','info'];
+const HIST_STATUSES = ['new','confirmed','false_positive','resolved','all'];
+const HIST_LIMIT = 100;
+const HIST_EXPORT_CAP = 10000;
+const hist = {status:'new', severities:new Set(HIST_SEVS), since:'', ip:'', rule:'', q:'',
+              offset:0, total:0, rows:[]};
+let histSeq = 0, histRulesLoaded = false;
+
+function historyVisible() { return !el('view-history').classList.contains('hidden'); }
+
+function showView(name) {
+  const h = name === 'history';
+  el('view-history').classList.toggle('hidden', !h);
+  el('view-dashboard').classList.toggle('hidden', h);
+  document.querySelectorAll('.views [data-action="showView"]').forEach(b => {
+    const on = b.dataset.arg === (h ? 'history' : 'dashboard');
+    b.classList.toggle('on', on);
+    if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+  });
+  try { history.replaceState(null, '', h ? '#history' : location.pathname + location.search); } catch (_) {}
+  if (h) { loadHistoryRules(); loadHistoryCounts(); loadHistory(); }
+  window.scrollTo(0, 0);
+}
+
+function openReviewQueue() { setHistStatus('new', false); showView('history'); }
+
+function histParams(extra) {
+  const p = new URLSearchParams();
+  p.set('status', hist.status);
+  p.set('sort', hist.status === 'new' ? 'worst' : 'newest');
+  if (hist.severities.size < HIST_SEVS.length)
+    for (const s of HIST_SEVS) if (hist.severities.has(s)) p.append('severity', s);
+  if (hist.since) p.set('since', String(Date.now() / 1000 - Number(hist.since)));
+  if (hist.ip) p.set('ip', hist.ip);
+  if (hist.rule) p.set('rule_id', hist.rule);
+  if (hist.q) p.set('q', hist.q);
+  for (const [k, v] of Object.entries(extra || {})) p.set(k, String(v));
+  return p.toString();
+}
+
+async function loadHistory() {
+  const seq = ++histSeq;
+  setText('hist-range', 'Loading…');
+  if (!hist.severities.size) {
+    hist.total = 0; hist.rows = [];
+    renderHistory('Select at least one severity.');
+    return;
+  }
+  try {
+    const d = await apiFetch('/alerts/history?' + histParams({offset: hist.offset, limit: HIST_LIMIT}));
+    if (seq !== histSeq) return;                       // a newer filter won
+    hist.total = d.total || 0;
+    hist.rows = Array.isArray(d.rows) ? d.rows : [];
+    renderHistory();
+  } catch (e) {
+    if (seq === histSeq) setText('hist-range', 'Could not load: ' + e.message);
+  }
+}
+
+/* Counts per review status over the whole record (other filters ignored). */
+async function loadHistoryCounts() {
+  await Promise.all(HIST_STATUSES.map(async s => {
+    try {
+      const d = await apiFetch(`/alerts/history?status=${encodeURIComponent(s)}&limit=1`);
+      setText('hn-' + s, fmtNum(d.total || 0));
+    } catch (_) { /* leave the old count */ }
+  }));
+}
+
+async function loadHistoryRules() {
+  if (histRulesLoaded) return;
+  try {
+    const cov = await apiFetch('/rules/coverage');
+    const ids = new Set();
+    for (const t of (cov.tiers || [])) for (const r of (t.rules || [])) if (r.rule_id) ids.add(r.rule_id);
+    const sel = el('hist-rule');
+    for (const id of [...ids].sort()) {
+      const o = document.createElement('option'); o.value = id; o.textContent = id; sel.appendChild(o);
+    }
+    histRulesLoaded = true;
+  } catch (_) { /* rule filter stays at "Any rule" */ }
+}
+
+function renderHistory(emptyMsg) {
+  const body = el('hist-body');
+  body.textContent = '';
+  if (!hist.rows.length) {
+    const tr = document.createElement('tr'), td = document.createElement('td');
+    td.colSpan = 7; td.className = 'no-alerts-msg';
+    td.textContent = emptyMsg
+      || (hist.offset > 0 && hist.total > 0 ? 'No rows on this page. Go back a page.'
+                                             : 'No alerts match these filters.');
+    tr.appendChild(td); body.appendChild(tr);
+  }
+  for (const a of hist.rows) {
+    const sev = sevKey(a.severity);
+    const tr = document.createElement('tr');
+    tr.className = 'sev-' + sev; tr.tabIndex = 0;
+    const cell = (text, cls) => {
+      const td = document.createElement('td');
+      if (cls) td.className = cls;
+      td.textContent = text; tr.appendChild(td); return td;
+    };
+    cell(a.timestamp || '—', 'mono');
+    const sv = document.createElement('td'), tag = document.createElement('span');
+    tag.className = 'sev-tag tag-' + sev;
+    tag.textContent = sev === 'critical' ? 'CRIT' : sev.toUpperCase();
+    sv.appendChild(tag); tr.appendChild(sv);
+    const rc = cell(a.type || a.rule_id || '—');
+    if (a.rule_id) {
+      rc.title = a.rule_id;
+      const s = document.createElement('span'); s.className = 'hist-rid'; s.textContent = a.rule_id;
+      rc.appendChild(s);
+    }
+    cell((a.src || '—') + (a.dst ? ' → ' + a.dst : ''), 'mono');
+    cell('×' + fmtNum(a.count || 1), 'mono');
+    cell(TRIAGE_LABEL[a.triage_status || 'new'] || a.triage_status);
+    cell(a.triage_by || '—');
+    tr.addEventListener('click', () => openModal(a));
+    tr.addEventListener('keydown', e => { if (e.key === 'Enter') openModal(a); });
+    body.appendChild(tr);
+  }
+  const from = hist.offset + 1, to = hist.offset + hist.rows.length;
+  setText('hist-range', hist.rows.length
+    ? `${fmtNum(from)}–${fmtNum(to)} of ${fmtNum(hist.total)}`
+    : `0 of ${fmtNum(hist.total)}`);
+  el('hist-prev').disabled = hist.offset <= 0;
+  el('hist-next').disabled = hist.offset + HIST_LIMIT >= hist.total;
+}
+
+function setHistStatus(status, load) {
+  if (!HIST_STATUSES.includes(status)) return;
+  hist.status = status; hist.offset = 0;
+  document.querySelectorAll('#hist-tabs .q-tab').forEach(b => {
+    const on = b.dataset.tab === status;
+    b.classList.toggle('on', on); b.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
+  if (load !== false) loadHistory();
+}
+
+function toggleHistSeverity(sev) {
+  if (!HIST_SEVS.includes(sev)) return;
+  if (hist.severities.has(sev)) hist.severities.delete(sev); else hist.severities.add(sev);
+  document.querySelectorAll('.hsev').forEach(b =>
+    b.setAttribute('aria-pressed', hist.severities.has(b.dataset.arg) ? 'true' : 'false'));
+  hist.offset = 0; loadHistory();
+}
+
+function histPage(dir) {
+  hist.offset = dir === 'prev' ? Math.max(0, hist.offset - HIST_LIMIT) : hist.offset + HIST_LIMIT;
+  loadHistory();
+}
+
+function initHistoryFilters() {
+  const changed = () => { hist.offset = 0; loadHistory(); };
+  el('hist-since').addEventListener('change', e => { hist.since = e.target.value; changed(); });
+  el('hist-rule').addEventListener('change', e => { hist.rule = e.target.value; changed(); });
+  for (const [id, key] of [['hist-ip', 'ip'], ['hist-q', 'q']]) {
+    let t = null;
+    el(id).addEventListener('input', e => {
+      clearTimeout(t);
+      t = setTimeout(() => { hist[key] = e.target.value.trim(); changed(); }, 300);
+    });
+  }
+}
+
+/* CSV cell. Alert text carries attacker-controlled content (payloads, user
+   agents); a cell starting with = + - @ tab or CR runs as a formula in a
+   spreadsheet, so it is prefixed with ' first. */
+function csvCell(v) {
+  let s = v == null ? '' : String(v);
+  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+  return '"' + s.replace(/"/g, '""') + '"';
+}
+
+function downloadCsv(lines, name) {
+  const blob = new Blob([lines.join('\n')], {type: 'text/csv'});
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a'); link.href = url; link.download = name; link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function exportHistoryCsv() {
+  const out = [];
+  let offset = 0, total = Infinity;
+  try {
+    while (offset < total && out.length < HIST_EXPORT_CAP) {
+      const d = await apiFetch('/alerts/history?' + histParams({offset, limit: 200}));
+      total = d.total || 0;
+      const rows = Array.isArray(d.rows) ? d.rows : [];
+      if (!rows.length) break;
+      out.push(...rows); offset += rows.length;
+    }
+  } catch (e) { toast('Export failed', e.message, 'error'); return; }
+  if (!out.length) { toast('No Data', 'Nothing to export.', 'warn'); return; }
+  const capped = total > HIST_EXPORT_CAP;
+  if (out.length > HIST_EXPORT_CAP) out.length = HIST_EXPORT_CAP;
+  const head = ['ID','Timestamp','Last seen','Severity','Rule ID','Type','Source','Destination',
+                'Protocol','Count','Status','Reviewed by','Note','Message'];
+  const lines = [head.map(csvCell).join(',')];
+  for (const a of out) {
+    lines.push([a.id, a.timestamp, a.last_seen ? new Date(a.last_seen * 1000).toISOString() : '',
+                a.severity, a.rule_id, a.type, a.src, a.dst, a.protocol, a.count || 1,
+                a.triage_status || 'new', a.triage_by, a.triage_note, a.message].map(csvCell).join(','));
+  }
+  downloadCsv(lines, `nids_history_${fmtDate()}.csv`);
+  if (capped) toast('Export capped', `First ${fmtNum(HIST_EXPORT_CAP)} of ${fmtNum(total)} rows. Narrow the filters for the rest.`, 'warn');
+  else toast('Exported', `${fmtNum(out.length)} alerts saved.`, 'ok');
+  setLastAction('Exported ' + out.length + ' history rows');
 }
 
 /* ═══════════════════════════════════════════
@@ -1771,6 +2208,15 @@ const ACTIONS = {
   doLogin:         () => doLogin(),
   doLogout:        () => doLogout(),
   setQueueTab:     (arg) => setQueueTab(arg),
+  clearFeed:       () => clearFeed(),
+  showAllFeed:     () => showAllFeed(),
+  showView:        (arg) => showView(arg === 'history' ? 'history' : 'dashboard'),
+  openReviewQueue: () => openReviewQueue(),
+  histStatus:      (arg) => setHistStatus(arg),
+  histSeverity:    (arg) => toggleHistSeverity(arg),
+  histPage:        (arg) => histPage(arg === 'prev' ? 'prev' : 'next'),
+  histRefresh:     () => { loadHistoryCounts(); loadHistory(); },
+  exportHistory:   () => exportHistoryCsv(),
   clearIpFilter:   () => setIpFilter(null),
   manualRefresh:   () => manualRefresh(),
   startSniffer:    () => startSniffer(),
@@ -1833,6 +2279,8 @@ document.addEventListener('keydown', e => {
 document.addEventListener('DOMContentLoaded', () => {
   initTimeline();
   initDonut();
+  updateFeedControls();
+  initHistoryFilters();
   checkExistingSession();
 });
 </script>

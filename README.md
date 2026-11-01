@@ -224,7 +224,7 @@ escalation, or whether a login actually succeeded. Host evidence comes from
 ### Running the checks
 
 ```powershell
-venv\Scripts\python.exe -m unittest discover -s tests -t tests    # 197 unit tests
+venv\Scripts\python.exe -m unittest discover -s tests -t tests    # 377 unit tests (4 skip on Windows / TLS-intercepting AV)
 venv\Scripts\python.exe efficacy_harness.py                       # TP/FP/FN report
 venv\Scripts\python.exe efficacy_harness.py -v --json             # detail / machine-readable
 ```

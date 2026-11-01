@@ -103,10 +103,14 @@ class DetectionPipeline:
         config: Optional[PipelineConfig] = None,
         clock: Callable[[], float] = time.time,
         on_alert: Optional[Callable[[dict], None]] = None,
+        on_repeat: Optional[Callable[[dict], None]] = None,
     ):
         self.cfg = config or PipelineConfig()
         self.clock = clock
         self.on_alert = on_alert
+        # Called with a copy of the existing record when a finding folds into
+        # it (count up, maybe reopened), so the owner can persist the change.
+        self.on_repeat = on_repeat
         self._next_id = 0
 
         self.correlator = CorrelationEngine(
@@ -331,6 +335,11 @@ class DetectionPipeline:
         result = self.alerts.add(alert, ts=now)
         if not result.stored:
             # Deduped: the record's count went up, no new alert to publish.
+            if (self.on_repeat is not None and result.record is not None
+                    and result.record.get("id") is not None):
+                rec = dict(result.record)
+                rec["reopened"] = result.reopened    # on the copy only, not stored
+                self.on_repeat(rec)
             return None
 
         alert["id"] = self.next_alert_id()

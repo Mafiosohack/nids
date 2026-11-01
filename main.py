@@ -29,7 +29,7 @@ import time
 from collections import defaultdict, deque
 from contextlib import contextmanager
 from datetime import datetime, timedelta
-from typing import Deque, Dict, List, Optional
+from typing import Deque, Dict, List, Optional, Tuple
 
 from pathlib import Path
 
@@ -620,6 +620,31 @@ def db_insert_alert(alert: Dict):
         )
 
 
+def db_touch_alert(rec: Dict):
+    """Persist a repeat folded into an existing alert: its count and when it
+    was last seen. Triage fields are written only when the repeat reopened a
+    resolved alert; otherwise `rec` may be a copy taken before an analyst's
+    verdict landed, and writing it would undo that verdict on disk."""
+    with get_db() as conn:
+        if rec.get("reopened"):
+            conn.execute(
+                "UPDATE alerts SET count=?, triage_status=?, triage_by=?, triage_at=?, "
+                "triage_note=?, created_at=? WHERE id=?",
+                (rec.get("count", 1), rec.get("triage_status"), rec.get("triage_by"),
+                 rec.get("triage_at"), rec.get("triage_note"), time.time(), rec["id"]),
+            )
+        else:
+            conn.execute("UPDATE alerts SET count=MAX(COALESCE(count,1), ?), created_at=? "
+                         "WHERE id=?", (rec.get("count", 1), time.time(), rec["id"]))
+
+
+def db_touch_counts(pending: List[Tuple[int, float, int]]):
+    """Write deferred repeat counts: (count, seen_at, id) rows, one transaction."""
+    with get_db() as conn:
+        conn.executemany("UPDATE alerts SET count=MAX(COALESCE(count,1), ?), created_at=? "
+                         "WHERE id=?", pending)
+
+
 def db_update_triage(records: List[Dict]):
     """Persist analyst verdicts so they survive a restart."""
     with get_db() as conn:
@@ -629,6 +654,23 @@ def db_update_triage(records: List[Dict]):
             [(r.get("triage_status"), r.get("triage_by"), r.get("triage_at"),
               r.get("triage_note"), r["id"]) for r in records],
         )
+
+
+def db_set_triage(ids: List[int], status: str, by: str, at: float,
+                  note: str) -> List[Dict]:
+    """Verdict on alerts that exist only in the database (the live store has
+    already evicted them). Returns {id, rule_id, type, src} for each id found,
+    so the caller can build suppressions from them like live records."""
+    if not ids:
+        return []
+    marks = ",".join("?" * len(ids))
+    with get_db() as conn:
+        conn.execute(f"UPDATE alerts SET triage_status=?, triage_by=?, triage_at=?, "
+                     f"triage_note=? WHERE id IN ({marks})",
+                     [status, by, at, note] + list(ids))
+        rows = conn.execute(f"SELECT id, rule_id, type, src FROM alerts "
+                            f"WHERE id IN ({marks})", list(ids)).fetchall()
+    return [dict(r) for r in rows]
 
 
 def db_insert_suppression(rec: Dict):
@@ -668,6 +710,75 @@ def db_load_recent_alerts(limit: int) -> List[Dict]:
         d.pop("created_at", None)
         out.append(d)
     return out
+
+
+HISTORY_SEVERITIES = ("critical", "high", "medium", "low", "info")
+_SEVERITY_RANK_SQL = ("CASE lower(severity) WHEN 'critical' THEN 5 WHEN 'high' THEN 4 "
+                      "WHEN 'medium' THEN 3 WHEN 'low' THEN 2 WHEN 'info' THEN 1 "
+                      "ELSE 0 END")
+
+
+def _like_literal(text: str) -> str:
+    """Escape LIKE wildcards so user text matches only itself (ESCAPE '\\')."""
+    return (text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_"))
+
+
+def db_query_alert_history(status: str = "all",
+                           severities: Optional[List[str]] = None,
+                           since: Optional[float] = None,
+                           ip: Optional[str] = None,
+                           rule_id: Optional[str] = None,
+                           q: Optional[str] = None,
+                           sort: str = "newest",
+                           offset: int = 0,
+                           limit: int = 100) -> Tuple[int, List[Dict]]:
+    """One page of the durable alert record, plus the total matching count.
+
+    Every value is a bound parameter; the WHERE clause is joined only from the
+    fixed fragments below. Rows written before triage existed have a NULL
+    triage_status and count as "new". `created_at` is the last time the row
+    was written (insert or repeat), returned as `last_seen`.
+    """
+    where, params = [], []
+    if status == "new":
+        where.append("(triage_status IS NULL OR triage_status = 'new')")
+    elif status != "all":
+        where.append("triage_status = ?")
+        params.append(status)
+    if severities:
+        where.append("lower(severity) IN (%s)" % ",".join("?" * len(severities)))
+        params.extend(s.lower() for s in severities)
+    if since is not None:
+        where.append("created_at >= ?")
+        params.append(float(since))
+    if ip:
+        where.append("(src = ? OR dst = ?)")
+        params.extend([ip, ip])
+    if rule_id:
+        where.append("rule_id = ?")
+        params.append(rule_id)
+    if q:
+        where.append("message LIKE ? ESCAPE '\\'")
+        params.append("%" + _like_literal(q) + "%")
+    clause = (" WHERE " + " AND ".join(where)) if where else ""
+    order = (f"{_SEVERITY_RANK_SQL} DESC, id DESC" if sort == "worst" else "id DESC")
+    with get_db() as conn:
+        total = int(conn.execute("SELECT COUNT(*) FROM alerts" + clause,
+                                 params).fetchone()[0])
+        rows = conn.execute(f"SELECT * FROM alerts{clause} ORDER BY {order} "
+                            "LIMIT ? OFFSET ?", params + [limit, offset]).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d["details"] = json.loads(d.get("details") or "{}")
+        except (ValueError, TypeError):
+            d["details"] = {}
+        d["last_seen"] = d.pop("created_at", None)
+        d["count"] = d.get("count") or 1
+        d["triage_status"] = d.get("triage_status") or "new"
+        out.append(d)
+    return total, out
 
 
 def db_max_alert_id() -> int:
@@ -1097,8 +1208,58 @@ def _next_alert_id() -> int:
         return _alert_id_counter[0]
 
 
+# Repeats arrive at the attacker's packet rate (a replayed exploit packet fires
+# its signature every time) and this hook runs on the capture thread, so it
+# must not cost a SQLite commit per repeat. A record is written on a reopen, at
+# the same count milestones the dedup log uses, or at most once per
+# REPEAT_PERSIST_SEC; everything in between waits in _repeat_pending and is
+# flushed before History is read, so History still shows the exact count.
+REPEAT_PERSIST_SEC = 5.0
+_REPEAT_TRACK_MAX = 20_000
+_repeat_lock = threading.Lock()
+_repeat_written_at: Dict[int, float] = {}            # id -> monotonic time of last write
+_repeat_pending: Dict[int, Tuple[int, float]] = {}   # id -> (count, wall time seen)
+
+
+def _on_repeat_alert(rec: Dict) -> None:
+    """Called by the pipeline when a finding folds into an existing alert."""
+    try:
+        aid, count = rec["id"], int(rec.get("count") or 1)
+        now = time.monotonic()
+        with _repeat_lock:
+            last = _repeat_written_at.get(aid)
+            due = (rec.get("reopened") or last is None
+                   or count in (2, 10, 100, 1000) or count % 1000 == 0
+                   or now - last >= REPEAT_PERSIST_SEC)
+            if not due:
+                _repeat_pending[aid] = (count, time.time())
+                return
+            if len(_repeat_written_at) >= _REPEAT_TRACK_MAX:
+                _repeat_written_at.clear()     # worst case: one extra write per id
+            _repeat_written_at[aid] = now
+            _repeat_pending.pop(aid, None)
+        db_touch_alert(rec)
+    except Exception as e:
+        safe_print(f"[DB][WARN] Could not persist repeat of alert {rec.get('id')}: {e}")
+
+
+def flush_repeat_writes() -> None:
+    """Write every deferred repeat count. Called before History reads the DB
+    and at shutdown; runs on the caller's thread, never the capture thread."""
+    with _repeat_lock:
+        pending = [(c, seen, aid) for aid, (c, seen) in _repeat_pending.items()]
+        _repeat_pending.clear()
+    if not pending:
+        return
+    try:
+        db_touch_counts(pending)
+    except Exception as e:
+        safe_print(f"[DB][WARN] Could not persist {len(pending)} repeat count(s): {e}")
+
+
 def _wire_pipeline() -> None:
     PIPELINE.on_alert = _on_published_alert
+    PIPELINE.on_repeat = _on_repeat_alert
     PIPELINE.next_alert_id = _next_alert_id
 
 
@@ -2527,6 +2688,41 @@ def get_alerts(
     return result[-limit:]
 
 
+@app.get("/alerts/history", tags=["Alerts"])
+def alert_history(
+    status:   str = Query("all", description="new | confirmed | false_positive | resolved | all"),
+    severity: Optional[List[str]] = Query(None, description="repeatable"),
+    since:    Optional[float] = Query(None, description="epoch seconds, by last seen"),
+    ip:       Optional[str] = Query(None, max_length=45, description="source or destination"),
+    rule_id:  Optional[str] = Query(None, max_length=64),
+    q:        Optional[str] = Query(None, max_length=200, description="text in the message"),
+    sort:     str = Query("newest", description="newest | worst"),
+    offset:   int = Query(0, ge=0),
+    limit:    int = Query(100, ge=1, le=200),
+    session: dict = Depends(require_permission("view_alerts")),
+):
+    """Every recorded alert, from the database rather than the live store.
+
+    The live store drops MEDIUM after 24 h and LOW after 6 h; the database
+    keeps the last ALERT_RETENTION alerts of every severity. This is what the
+    dashboard's History view pages through."""
+    if status not in SETTABLE_STATUSES | {"new", "all"}:
+        raise HTTPException(400, "status must be one of "
+                                 f"{sorted(SETTABLE_STATUSES | {'new', 'all'})}")
+    sevs = [s.lower() for s in (severity or [])]
+    bad = [s for s in sevs if s not in HISTORY_SEVERITIES]
+    if bad:
+        raise HTTPException(400, f"severity must be among {list(HISTORY_SEVERITIES)}")
+    if sort not in ("newest", "worst"):
+        raise HTTPException(400, "sort must be 'newest' or 'worst'")
+    flush_repeat_writes()       # deferred repeat counts, so History is exact
+    total, rows = db_query_alert_history(status=status, severities=sevs or None,
+                                         since=since, ip=ip or None,
+                                         rule_id=rule_id or None, q=q or None,
+                                         sort=sort, offset=offset, limit=limit)
+    return {"total": total, "offset": offset, "limit": limit, "rows": rows}
+
+
 @app.get("/alerts/summary", tags=["Alerts"])
 def alerts_summary(session: dict = Depends(require_permission("view_alerts"))):
     """Counts over every stored record — what the stat cards show.
@@ -2580,19 +2776,32 @@ def triage_alerts(req: TriageRequest,
     except Exception as e:
         safe_print(f"[DB][WARN] Could not persist triage: {e}")
 
+    # Ids the live store no longer holds (History shows the whole database):
+    # judge them on disk, and report any that exist nowhere.
+    missing = sorted(set(req.ids) - {r["id"] for r in updated})
+    db_rows: List[Dict] = []
+    if missing:
+        try:
+            db_rows = db_set_triage(missing, req.status, session["username"],
+                                    time.time(), note)
+        except Exception as e:
+            safe_print(f"[DB][WARN] Could not persist triage: {e}")
+    not_found = sorted(set(missing) - {r["id"] for r in db_rows})
+    judged = updated + db_rows
+
     created = []
     if req.suppress:
-        pairs = {(r.get("rule_id") or r.get("type"), r.get("src")) for r in updated}
+        pairs = {(r.get("rule_id") or r.get("type"), r.get("src")) for r in judged}
         for rule_id, src in sorted(p for p in pairs if p[0] and p[1]):
             rule = resolve_rule(rule_id, None)
             if rule is not None and rule.tier == "correlation":
                 continue   # derived alerts are not suppressible; see pipeline.publish
             created.append(_add_suppression(rule_id, src, session["username"], note))
 
-    print(f"[TRIAGE] {session['username']} marked {len(updated)} alert(s) "
+    print(f"[TRIAGE] {session['username']} marked {len(judged)} alert(s) "
           f"{req.status}" + (f", added {len(created)} suppression(s)" if created else ""))
-    return {"updated": len(updated), "ids": [r["id"] for r in updated],
-            "suppressions_created": created}
+    return {"updated": len(judged), "ids": [r["id"] for r in judged],
+            "not_found": not_found, "suppressions_created": created}
 
 
 @app.get("/alerts/{alert_id}/context", tags=["Alerts"])
@@ -2820,6 +3029,9 @@ def clear_alerts(session: dict = Depends(require_permission("delete_alerts"))):
         _recent_pc_alerts.clear()
     with _alert_id_lock:
         _alert_id_counter[0] = 0
+    with _repeat_lock:                   # ids restart; old throttle state is meaningless
+        _repeat_written_at.clear()
+        _repeat_pending.clear()
     audit(session["username"], "alerts_clear", "", f"{count} record(s)")
     print(f"[NIDS] {session['username']} cleared {count} alert records "
           f"(memory + disk) and reset correlation state.")
@@ -3044,6 +3256,7 @@ def on_startup():
 @app.on_event("shutdown")
 def on_shutdown():
     """Take a final snapshot of what the sensor learned this run."""
+    flush_repeat_writes()
     _profile_saver_stop.set()
     if save_host_profiles():
         print(f"[PROFILES] Saved {PIPELINE.profiles.stats()['hosts']} host "
