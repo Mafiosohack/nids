@@ -24,7 +24,8 @@ regenerable):
 |------|------|---------------|
 | `venv/` | Python virtual environment | Create it (see Setup) |
 | `data/cicids2017/` | CIC-IDS2017 dataset (~2 GB) | Download — only needed to **retrain** |
-| `models/rf_live*.pkl` | Old NSL-KDD model (unused) | Regenerate with `train_random_forest_v2.py` |
+| `models/rf_live*.pkl` | Old NSL-KDD model (unused) | See [`docs/LEGACY_NSL_KDD.md`](docs/LEGACY_NSL_KDD.md) |
+| `data/raw/KDD*.txt` | NSL-KDD dataset (legacy, 22 MB) | Only for the legacy scripts; restore steps in [`docs/LEGACY_NSL_KDD.md`](docs/LEGACY_NSL_KDD.md) |
 | `*.db` | User / alert databases | Auto-created on first run |
 
 So after cloning you only need to (1) set up the venv — then it runs. You need
@@ -404,4 +405,6 @@ The dashboard's **Model Comparison** panel reads the freshly written metadata vi
 `/model/info`, so retraining updates the UI numbers automatically.
 
 > The older NSL-KDD pipeline (`train_random_forest_v2.py` → `models/rf_live.pkl`)
-> is retained but no longer wired into the sensor.
+> is retained but no longer wired into the sensor. Its dataset is no longer in
+> the working tree. What it scored, why it was replaced, and how to restore the
+> data: [`docs/LEGACY_NSL_KDD.md`](docs/LEGACY_NSL_KDD.md).

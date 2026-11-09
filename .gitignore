@@ -99,3 +99,24 @@ Thumbs.db
 
 # Environment variables
 .env
+
+# Variant env files (.env.local, .env.prod, ...) - keep a placeholder-only
+# .env.example committable.
+.env.*
+!.env.example
+
+# Private keys in any format, not just PEM.
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+
+# Claude Code per-machine settings: the permission allow-list records every
+# approved command verbatim, including any password typed into one. Ignored
+# globally on the dev box, but a fresh clone elsewhere has no global rule.
+.claude/settings.local.json
+
+# NSL-KDD legacy dataset (removed 2026-11-09; restore steps in
+# docs/LEGACY_NSL_KDD.md). Kept out so restoring it locally does not re-add 22 MB.
+data/raw/

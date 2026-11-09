@@ -1,8 +1,8 @@
 """
 Offline verification for the live ML inference path (no scapy / no live capture).
 
-Confirms that the feature vector the sensor builds aligns with the trained
-rf_live model, that inference runs end-to-end, and that obviously-malicious vs
+Confirms that the feature vector the sensor builds aligns with the served
+model (models/cicids_live.pkl, loaded via live_ids_v2.load_model), that inference runs end-to-end, and that obviously-malicious vs
 benign flows are scored sensibly. Run:
 
     python test_live_inference.py

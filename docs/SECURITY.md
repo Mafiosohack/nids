@@ -187,10 +187,6 @@ the check that would have caught `nids_users.db` at the time.
 
 ## What this repository intentionally does contain
 
-- `data/raw/KDDTrain+.txt`, `KDDTest+.txt` (22 MB) — the NSL-KDD public research
-  dataset. Committed on purpose: `compare_models.py` and
-  `collector/dataset_loader.py` need it, and a fresh clone should be able to run
-  them. Publicly redistributable.
 - `models/cicids_*.pkl` (~7 MB) — trained CIC-IDS2017 models, so a clone runs
   without the ~2 GB dataset.
 - Lab IP addresses (`192.168.56.0/24`) in tests, docs and
