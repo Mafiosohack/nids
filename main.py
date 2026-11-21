@@ -1214,8 +1214,13 @@ def _next_alert_id() -> int:
 # the same count milestones the dedup log uses, or at most once per
 # REPEAT_PERSIST_SEC; everything in between waits in _repeat_pending and is
 # flushed before History is read, so History still shows the exact count.
+# A background thread also flushes it every REPEAT_FLUSH_SEC, off the capture
+# thread, so readers of the database file (the Active Response Engine) see the
+# end of a burst without waiting for someone to open History.
 REPEAT_PERSIST_SEC = 5.0
+REPEAT_FLUSH_SEC = float(os.environ.get("NIDS_REPEAT_FLUSH_SEC", "1"))
 _REPEAT_TRACK_MAX = 20_000
+_repeat_flusher_stop = threading.Event()
 _repeat_lock = threading.Lock()
 _repeat_written_at: Dict[int, float] = {}            # id -> monotonic time of last write
 _repeat_pending: Dict[int, Tuple[int, float]] = {}   # id -> (count, wall time seen)
@@ -1255,6 +1260,13 @@ def flush_repeat_writes() -> None:
         db_touch_counts(pending)
     except Exception as e:
         safe_print(f"[DB][WARN] Could not persist {len(pending)} repeat count(s): {e}")
+
+
+def _repeat_flusher_worker():
+    """Write deferred repeat counts every REPEAT_FLUSH_SEC. Daemon thread; the
+    shutdown handler does the final flush."""
+    while not _repeat_flusher_stop.wait(REPEAT_FLUSH_SEC):
+        flush_repeat_writes()
 
 
 def _wire_pipeline() -> None:
@@ -3236,6 +3248,9 @@ def on_startup():
     load_host_profiles()
     threading.Thread(target=_profile_saver_worker, daemon=True,
                      name="profile-saver").start()
+    _repeat_flusher_stop.clear()       # a previous shutdown in this process set it
+    threading.Thread(target=_repeat_flusher_worker, daemon=True,
+                     name="repeat-flusher").start()
 
     # start.sh sets this: a script cannot log in, and capture is the core job.
     if os.environ.get("NIDS_AUTOSTART_CAPTURE", "").strip() in ("1", "true", "yes"):
@@ -3256,6 +3271,7 @@ def on_startup():
 @app.on_event("shutdown")
 def on_shutdown():
     """Take a final snapshot of what the sensor learned this run."""
+    _repeat_flusher_stop.set()
     flush_repeat_writes()
     _profile_saver_stop.set()
     if save_host_profiles():

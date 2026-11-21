@@ -345,6 +345,24 @@ class TestRepeatPersisted(unittest.TestCase):
         self.assertLessEqual(len(calls), 3, "repeat writes from the capture thread")
         self.assertEqual(self.row(aid)["count"], 61)
 
+    def db_count(self, aid):
+        """The count as other readers of nids_users.db see it (no History flush)."""
+        with sqlite3.connect(str(self.main.DB_PATH)) as c:
+            return c.execute("SELECT count FROM alerts WHERE id=?", (aid,)).fetchone()[0]
+
+    def test_deferred_repeats_reach_the_database_without_history(self):
+        """Breaks if the tail of a repeat burst stays in memory until someone
+        opens History: the Active Response Engine reads nids_users.db directly
+        and would score the alert on a stale count. A background flush must
+        write it within a few seconds."""
+        aid = self.publish()["id"]
+        for _ in range(6):
+            self.publish()
+        deadline = time.time() + 5
+        while self.db_count(aid) != 7 and time.time() < deadline:
+            time.sleep(0.1)
+        self.assertEqual(self.db_count(aid), 7)
+
     def test_plain_repeat_does_not_overwrite_a_verdict(self):
         """Breaks if a repeat rewrites triage fields from a stale copy: the
         sniffer copies the record (new), the analyst confirms, the repeat
